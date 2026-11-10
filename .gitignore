@@ -1,0 +1,19 @@
+# Logs und Laufzeitdaten
+*.log
+logs.txt
+server.err.log
+server.log
+
+# Abhaengigkeiten
+node_modules/
+
+# Secrets / lokale Konfiguration
+.env
+.env.*
+*.local
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
