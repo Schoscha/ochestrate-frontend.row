@@ -2,7 +2,10 @@ import { spawn } from 'child_process';
 import { createServer } from 'http';
 import { readFileSync, existsSync } from 'fs';
 import { extname, join, resolve } from 'path';
+import { hostname } from 'os';
 import { fileURLToPath } from 'url';
+import { ProviderRegistry, PROVIDERS } from './providers.mjs';
+import { listSkills, listMcpServers } from './local-inventory.mjs';
 
 // Native fetch (Node >= 18)
 const fetch = globalThis.fetch.bind(globalThis);
@@ -185,11 +188,14 @@ const memory = new MemoryMCP();
 /* --------------------------------------------------------------
    Codex App-Server
    -------------------------------------------------------------- */
+const SLOW_METHODS = new Set(['skills/list', 'mcpServerStatus/list', 'review/start', 'config/read']);
+
 class CodexServer {
   constructor() {
     this.codex = null;
     this.requestId = 1;
     this.pending = new Map();
+    this.serverRequests = new Map();
     this.sseClients = new Set();
     this.ready = false;
     this.startCodex();
@@ -256,6 +262,8 @@ class CodexServer {
   }
 
   async send(method, params = {}, retries = 3) {
+    // Manche Methoden brauchen laenger (Skills-Scan, MCP-Status)
+    const timeoutMs = SLOW_METHODS.has(method) ? 60000 : 15000;
     for (let attempt = 0; attempt <= retries; attempt++) {
       const canWrite = this.codex && this.codex.stdin && this.codex.stdin.writable;
       const waitForReady = attempt < retries && !this.ready;
@@ -270,7 +278,7 @@ class CodexServer {
           const timer = setTimeout(() => {
             this.pending.delete(id);
             reject(new Error('Codex RPC timeout: ' + method));
-          }, 15000);
+          }, timeoutMs);
           this.pending.set(id, {
             resolve: (v) => { clearTimeout(timer); resolve(v); },
             reject: (e) => { clearTimeout(timer); this.pending.delete(id); reject(e); }
@@ -279,6 +287,8 @@ class CodexServer {
         });
         return result;
       } catch (e) {
+        // Deterministische RPC-Fehler (z. B. fehlende Anmeldung) nicht wiederholen
+        if (e && e.rpc) throw e;
         if (attempt === retries) throw e;
         console.error(`[codex] RPC '${method}' fehlgeschlagen (Versuch ${attempt + 1}):`, e.message);
         await new Promise(r => setTimeout(r, 2000));
@@ -288,16 +298,68 @@ class CodexServer {
   }
 
   handleCodexMessage(msg) {
-    if (msg.id && this.pending.has(msg.id)) {
+    // Antwort auf unsere eigene Anfrage
+    if (msg.id !== undefined && msg.id !== null && this.pending.has(msg.id)) {
       const { resolve, reject } = this.pending.get(msg.id);
       this.pending.delete(msg.id);
-      if (msg.error) reject(msg.error);
+      if (msg.error) {
+        const err = new Error(msg.error.message || 'Codex-Fehler');
+        err.rpc = true;
+        reject(err);
+      }
       else resolve(msg.result);
+      return;
     }
 
-    if (msg.method && msg.method.startsWith('events/')) {
+    // Server->Client-Request (Freigaben fuer Befehle, Dateiaenderungen, Eingaben)
+    if (msg.id !== undefined && msg.id !== null && msg.method) {
+      this.handleServerRequest(msg);
+      return;
+    }
+
+    // Notification: alles an die SSE-Clients weitergeben (v1 "events/..." und v2-Namen)
+    if (msg.method) {
       this.broadcastSSE(msg);
     }
+  }
+
+  handleServerRequest(msg) {
+    const entry = {
+      id: msg.id,
+      method: msg.method,
+      params: msg.params || {},
+      at: Date.now()
+    };
+    this.serverRequests.set(msg.id, entry);
+    console.log('[codex] Freigabe angefordert:', msg.method);
+    this.broadcastSSE({
+      type: 'approval',
+      id: msg.id,
+      method: msg.method,
+      params: msg.params || {}
+    });
+  }
+
+  /** Antwortet eine Freigabe-Anfrage des Codex-Servers. */
+  async answerServerRequest(id, result) {
+    const entry = this.serverRequests.get(id);
+    if (!entry) throw new Error('Freigabe-Anfrage nicht mehr offen (id ' + id + ')');
+    this.serverRequests.delete(id);
+    if (!this.codex || !this.codex.stdin || !this.codex.stdin.writable) {
+      throw new Error('Codex nicht erreichbar');
+    }
+    this.codex.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
+    console.log('[codex] Freigabe beantwortet:', entry.method);
+    return { ok: true, method: entry.method };
+  }
+
+  openApprovals() {
+    return [...this.serverRequests.values()].map(a => ({
+      id: a.id,
+      method: a.method,
+      at: a.at,
+      summary: a.params.reason || a.params.command || a.params.title || a.method
+    }));
   }
 
   broadcastSSE(msg) {
@@ -310,11 +372,21 @@ class CodexServer {
   addSSEClient(res) {
     this.sseClients.add(res);
     res.write('data: {"type":"connected"}\n\n');
-    res.on('close', () => this.sseClients.delete(res));
+    // Heartbeat: haelt die Verbindung ueber Mobilfunk und lastwagen Proxys offen
+    const hb = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch {}
+    }, 15000);
+    res.on('close', () => {
+      clearInterval(hb);
+      this.sseClients.delete(res);
+    });
   }
 }
 
 const codexServer = new CodexServer();
+const providerRegistry = new ProviderRegistry();
+// Keys einmal vorladen, damit der erste Aufruf nicht auf den Vault warten muss
+providerRegistry.ensureKeys().catch(() => {});
 
 /* --------------------------------------------------------------
    HTTP Server
@@ -399,30 +471,84 @@ const httpServer = createServer(async (req, res) => {
     }
   }
 
-  /* --- Thread lesen --- */
-  if (path.startsWith('/api/threads/') && path.endsWith('/turns') && req.method === 'GET') {
-    const threadId = path.split('/')[3];
+  /* --- Thread lesen (Verlauf mit Turns und Items) --- */
+  const threadRoute = path.match(/^\/api\/threads\/([A-Za-z0-9\-]+)(?:\/([a-zA-Z]+))?$/);
+  if (threadRoute && req.method === 'GET') {
+    const threadId = threadRoute[1];
+    const sub = threadRoute[2] || 'turns';
     try {
-      const result = await codexServer.send('thread/read', { thread_id: threadId });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify(result));
+      if (sub === 'turns') {
+        const result = await codexServer.send('thread/turns/list', { threadId, limit: 50 });
+        const turns = (result && result.data) || [];
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ turns, count: turns.length, nextCursor: result?.nextCursor || null }));
+      }
+      if (sub === 'items') {
+        const result = await codexServer.send('thread/items/list', { threadId, limit: 100 });
+        const items = (result && result.data) || [];
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ items, count: items.length, nextCursor: result?.nextCursor || null }));
+      }
+      if (sub === 'goal') {
+        const result = await codexServer.send('thread/goal/get', { threadId });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(result || {}));
+      }
+      if (sub === 'approvals') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ approvals: codexServer.openApprovals() }));
+      }
+      if (sub === 'read') {
+        const result = await codexServer.send('thread/read', { threadId });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(result || {}));
+      }
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Unbekannte Thread-Aktion: ' + sub }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: e.message, turns: [] }));
+      return res.end(JSON.stringify({ error: e.message, turns: [], items: [] }));
     }
   }
 
-  /* --- Thread erstellen + Turn starten --- */
-  if (path === '/api/threads' && req.method === 'POST') {
+  /* --- Thread-Aktionen (Steer, Name, Archiv, Löschen, Fork, Goal) --- */
+  if (threadRoute && req.method === 'POST') {
+    const threadId = threadRoute[1];
+    const sub = threadRoute[2];
     let body = '';
     req.on('data', c => body += c);
     req.on('end', async () => {
       try {
-        const { model, approvalPolicy, prompt } = JSON.parse(body || '{}');
-        const thread = await codexServer.send('thread/start', { model, approval_policy: approvalPolicy });
-        if (prompt) await codexServer.send('turn/start', { thread_id: thread.id, prompt });
+        const payload = JSON.parse(body || '{}');
+        let result = null;
+        if (sub === 'steer') {
+          result = await codexServer.send('turn/steer', {
+            threadId,
+            input: [{ type: 'text', text: payload.text || payload.input || '' }],
+            expectedTurnId: payload.expectedTurnId
+          });
+        } else if (sub === 'name') {
+          result = await codexServer.send('thread/name/set', { threadId, name: payload.name || '' });
+        } else if (sub === 'archive') {
+          result = await codexServer.send('thread/archive', { threadId });
+        } else if (sub === 'delete') {
+          result = await codexServer.send('thread/delete', { threadId });
+        } else if (sub === 'fork') {
+          result = await codexServer.send('thread/fork', { threadId });
+        } else if (sub === 'goal') {
+          result = await codexServer.send('thread/goal/set', {
+            threadId,
+            objective: payload.objective || payload.text || '',
+            tokenBudget: payload.tokenBudget
+          });
+        } else if (sub === 'resume') {
+          result = await codexServer.send('thread/resume', { threadId });
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Unbekannte Thread-Aktion: ' + sub }));
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify(thread));
+        return res.end(JSON.stringify({ ok: true, result }));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ error: e.message }));
@@ -431,16 +557,52 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
-  /* --- Approve --- */
+  /* --- Thread erstellen + Turn starten --- */
+  if (path === '/api/threads' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const { model, approvalPolicy, cwd, prompt } = JSON.parse(body || '{}');
+        const started = await codexServer.send('thread/start', {
+          model: model || undefined,
+          cwd: cwd || undefined,
+          approvalPolicy: approvalPolicy || undefined
+        });
+        const thread = (started && started.thread) || started;
+        if (prompt && thread && thread.id) {
+          await codexServer.send('turn/start', {
+            threadId: thread.id,
+            input: [{ type: 'text', text: prompt }]
+          });
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ ...thread, id: thread?.id || null }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  /* --- Freigaben (Codex fragt den Server, der Server fragt die UI) --- */
   if (path === '/api/approve' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
     req.on('end', async () => {
       try {
-        const { thread_id, approval_id, decision } = JSON.parse(body || '{}');
-        await codexServer.send('turn/approve', { thread_id, approval_id, decision });
+        const { id, approval_id, decision, answers } = JSON.parse(body || '{}');
+        const requestId = id ?? approval_id;
+        if (requestId === undefined || requestId === null) {
+          throw new Error('Freigabe-ID fehlt');
+        }
+        const result = answers
+          ? { answers }
+          : { decision: decision || 'decline' };
+        const out = await codexServer.answerServerRequest(requestId, result);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ ok: true }));
+        return res.end(JSON.stringify(out));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ error: e.message }));
@@ -455,8 +617,8 @@ const httpServer = createServer(async (req, res) => {
     req.on('data', c => body += c);
     req.on('end', async () => {
       try {
-        const { thread_id } = JSON.parse(body || '{}');
-        await codexServer.send('turn/interrupt', { thread_id });
+        const { thread_id, threadId } = JSON.parse(body || '{}');
+        await codexServer.send('turn/interrupt', { threadId: thread_id || threadId });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ ok: true }));
       } catch (e) {
@@ -465,6 +627,243 @@ const httpServer = createServer(async (req, res) => {
       }
     });
     return;
+  }
+
+  /* --- Info (fuer Kopfzeile und Handy-Ansicht) --- */
+  if (path === '/api/info' && req.method === 'GET') {
+    const info = {
+      name: 'Codex Web UI',
+      version: '1.1.0',
+      host: hostname(),
+      urls: {
+        local: `http://127.0.0.1:${PORT}`,
+        tailscale: `http://${process.env.TAILSCALE_IP || '100.68.210.112'}:${PORT}`
+      },
+      stationUrl: STATION_URL,
+      vaultBase: VAULT_WEB_BASE,
+      memory: { host: MEMORY_HOST, port: MEMORY_PORT },
+      providerOrder: PROVIDERS.map(p => ({ id: p.id, name: p.name, tier: p.tier })),
+      primary: 'free',
+      startedAt: Math.round(Date.now() - process.uptime() * 1000)
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(info));
+  }
+
+  /* --- Provider (FreeLLMAPI -> OpenRouter -> Codex-Abo) --- */
+  if (path === '/api/providers' && req.method === 'GET') {
+    try {
+      const providers = await providerRegistry.status();
+      const account = await codexServer.send('account/read', {}).catch(() => null);
+      const codexProvider = providers.find(p => p.id === 'codex');
+      if (codexProvider) {
+        const needsAuth = account && account.requiresOpenaiAuth;
+        codexProvider.ready = !needsAuth;
+        codexProvider.needsAuth = Boolean(needsAuth);
+        codexProvider.reason = needsAuth
+          ? 'Nicht angemeldet - codex login auf dem Lenovo noetig'
+          : null;
+        codexProvider.account = (account && account.account) || null;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        providers,
+        primary: 'free',
+        fallback: ['free', 'openrouter', 'codex'],
+        count: providers.length
+      }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: e.message, providers: [] }));
+    }
+  }
+
+  if (path === '/api/models' && req.method === 'GET') {
+    const providerId = url.searchParams.get('provider') || 'codex';
+    try {
+      if (providerId === 'codex') {
+        const result = await codexServer.send('model/list', {});
+        const list = (result && result.data) || [];
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          provider: 'codex',
+          models: list.map(m => ({
+            id: m.id || m.model,
+            name: m.displayName || m.name || m.id || m.model,
+            description: m.description || null,
+            free: false
+          })),
+          count: list.length
+        }));
+      }
+      const out = await providerRegistry.models(providerId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(out));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: e.message, models: [] }));
+    }
+  }
+
+  /* --- Direkte Frage an einen Provider (ohne Codex-Thread), optional gestreamt --- */
+  if (path === '/api/chat' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', async () => {
+      let payload = {};
+      try {
+        payload = JSON.parse(body || '{}');
+        const { provider, model, prompt, messages, temperature, maxTokens, stream } = payload;
+        const msgList = messages && messages.length
+          ? messages
+          : [{ role: 'user', content: prompt || '' }];
+        if (!msgList.length || !msgList[0].content) throw new Error('Leere Frage');
+
+        const wanted = provider || 'auto';
+        const order = wanted === 'auto' ? ['free', 'openrouter'] : [wanted];
+
+        if (stream) {
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+          });
+          const send = (obj) => {
+            const line = `data: ${JSON.stringify(obj)}\n\n`;
+            try { res.write(line); } catch {}
+            codexServer.broadcastSSE(obj);
+          };
+          send({ type: 'chatStart', provider: wanted, model: model || null });
+
+          let lastError = null;
+          let done = false;
+          for (const id of order) {
+            if (done) break;
+            try {
+              const out = await providerRegistry.chatStream(id, {
+                model,
+                messages: msgList,
+                temperature,
+                maxTokens,
+                onDelta: (text) => send({ type: 'delta', provider: id, text })
+              });
+              send({ type: 'done', provider: out.provider, model: out.model, answer: out.answer });
+              done = true;
+            } catch (e) {
+              lastError = e;
+              console.error('[provider:' + id + ']', e.message);
+              send({ type: 'providerError', provider: id, error: e.message });
+            }
+          }
+          if (!done) send({ type: 'error', error: lastError ? lastError.message : 'Kein Provider erreichbar' });
+          return res.end();
+        }
+
+        let lastError = null;
+        for (const id of order) {
+          try {
+            const out = await providerRegistry.chat(id, { model, messages: msgList, temperature, maxTokens });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(out));
+          } catch (e) {
+            lastError = e;
+            console.error('[provider:' + id + ']', e.message);
+          }
+        }
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: lastError ? lastError.message : 'Kein Provider erreichbar' }));
+      } catch (e) {
+        if (!res.headersSent) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: e.message }));
+        }
+        try { res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`); } catch {}
+        return res.end();
+      }
+    });
+    return;
+  }
+
+  /* --- Werkzeuge: MCP-Server + agent-memory --- */
+  if (path === '/api/mcp' && req.method === 'GET') {
+    const servers = listMcpServers();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({
+      servers,
+      memory: {
+        name: 'agent-memory',
+        host: MEMORY_HOST,
+        port: MEMORY_PORT,
+        status: memory.lastError ? 'error' : (memory.sessionId ? 'ok' : 'init'),
+        error: memory.lastError || null,
+        lastOk: memory.lastOkAt || null
+      },
+      count: servers.length,
+      source: 'codex-config'
+    }));
+  }
+
+  /* --- Skills (lokal aus ~/.agents/skills) --- */
+  if (path === '/api/skills' && req.method === 'GET') {
+    const skills = listSkills();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({
+      skills,
+      count: skills.length,
+      source: 'agents-skills'
+    }));
+  }
+
+  /* --- Konto und Limits --- */
+  if (path === '/api/account' && req.method === 'GET') {
+    const account = await codexServer.send('account/read', {}).catch(e => ({ error: e.message }));
+    const limits = await codexServer.send('account/rateLimits/read', {}).catch(e => ({ error: e.message }));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({
+      account: account.account || null,
+      requiresOpenaiAuth: account.requiresOpenaiAuth ?? null,
+      rateLimits: limits || null,
+      accountError: account.error || null
+    }));
+  }
+
+  /* --- Dateibaum im Arbeitsverzeichnis --- */
+  if (path === '/api/fs' && req.method === 'GET') {
+    const target = url.searchParams.get('path') || '';
+    try {
+      const result = await codexServer.send('fs/readDirectory', { path: target });
+      const entries = (result && (result.entries || result.data)) || [];
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        path: target,
+        entries: entries.map(e => ({
+          name: e.name,
+          path: e.path || (target ? target + '/' + e.name : e.name),
+          kind: e.kind || (e.isDirectory ? 'dir' : 'file'),
+          size: e.size ?? null
+        })),
+        count: entries.length
+      }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: e.message, entries: [] }));
+    }
+  }
+
+  if (path === '/api/fs/file' && req.method === 'GET') {
+    const target = url.searchParams.get('path') || '';
+    try {
+      const result = await codexServer.send('fs/readFile', { path: target });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        path: target,
+        content: result?.content ?? result?.text ?? '',
+        encoding: result?.encoding || 'utf-8'
+      }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: e.message, content: '' }));
+    }
   }
 
   /* --- Wissen (Memory-MCP über Homeserver) --- */
