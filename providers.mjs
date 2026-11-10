@@ -207,6 +207,61 @@ export class ProviderRegistry {
   }
 
   /**
+   * Chat mit Werkzeugen (Function Calling). Liefert { content, toolCalls }.
+   */
+  async chatWithTools(providerId, { model, messages, tools, temperature = 0.2, maxTokens = 4000, signal } = {}) {
+    const p = this.providerById(providerId);
+    if (!p) throw new Error('Unbekannter Provider: ' + providerId);
+    if (p.id === 'codex') throw new Error('Codex laeuft ueber den App-Server, nicht ueber die API-Schicht');
+
+    const keys = await this.ensureKeys();
+    const usable = keysFor(p, keys);
+    if (p.needsAuth && !usable.length) throw new Error(`Kein API-Key fuer ${p.name} im Vault`);
+
+    const chosenModel = model || (await this.models(p.id)).models[0]?.id;
+    if (!chosenModel) throw new Error(`${p.name}: keine Modelle verfuegbar`);
+
+    let lastError = null;
+    for (const key of usable.length ? usable : [null]) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (key) headers.Authorization = 'Bearer ' + key;
+      try {
+        const res = await fetch(p.baseUrl + '/chat/completions', {
+          method: 'POST',
+          headers,
+          signal: signal || AbortSignal.timeout(180000),
+          body: JSON.stringify({
+            model: chosenModel,
+            messages,
+            tools,
+            temperature,
+            max_tokens: maxTokens,
+            stream: false
+          })
+        });
+        const text = await res.text();
+        if (!res.ok) {
+          lastError = new Error(`${p.name}: HTTP ${res.status} ${text.slice(0, 200)}`);
+          continue;
+        }
+        let json;
+        try { json = JSON.parse(text); } catch { throw new Error(`${p.name}: unlesbare Antwort`); }
+        const msg = json.choices?.[0]?.message || {};
+        return {
+          content: msg.content || '',
+          toolCalls: msg.tool_calls || [],
+          provider: p.id,
+          providerName: p.name,
+          model: chosenModel
+        };
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw lastError || new Error(`${p.name}: keine Antwort`);
+  }
+
+  /**
    * Streaming-Variante: liefert Textbloecke ueber onDelta.
    * Der Aufrufer entscheidet, ob SSE zum Browser oder in den Codex-SSE-Kanal geht.
    */

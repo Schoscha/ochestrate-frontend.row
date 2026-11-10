@@ -3,9 +3,11 @@ import { createServer } from 'http';
 import { readFileSync, existsSync } from 'fs';
 import { extname, join, resolve } from 'path';
 import { hostname } from 'os';
+import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { ProviderRegistry, PROVIDERS } from './providers.mjs';
 import { listSkills, listMcpServers } from './local-inventory.mjs';
+import { Harness } from './harness.mjs';
 
 // Native fetch (Node >= 18)
 const fetch = globalThis.fetch.bind(globalThis);
@@ -412,6 +414,42 @@ const providerRegistry = new ProviderRegistry();
 providerRegistry.ensureKeys().catch(() => {});
 
 /* --------------------------------------------------------------
+   Agent-Harness (ohne Abo): Freigaben fuer Schreibbefehle
+   -------------------------------------------------------------- */
+const harnessApprovals = new Map();
+let harnessApprovalSeq = 1;
+
+function requestHarnessApproval(request) {
+  const id = 'harness-' + (harnessApprovalSeq++);
+  return new Promise((resolve) => {
+    harnessApprovals.set(id, resolve);
+    codexServer.broadcastSSE({ type: 'approval', id, method: 'harness/tool', params: request });
+    const timer = setTimeout(() => {
+      if (harnessApprovals.has(id)) {
+        harnessApprovals.delete(id);
+        resolve('decline');
+      }
+    }, 10 * 60 * 1000);
+    harnessApprovals.set(id, (decision) => { clearTimeout(timer); resolve(decision); });
+    console.log('[harness] Freigabe angefordert:', id, request.reason);
+  });
+}
+
+const harness = new Harness({
+  providers: providerRegistry,
+  memory,
+  approvalGate: requestHarnessApproval,
+  emit: async (event) => { codexServer.broadcastSSE(event); }
+});
+
+const HARNESS_SYSTEM_PROMPT = `Du bist der Codex-Agent auf dem Rechner von Sascha (Windows).
+Arbeitsverzeichnis: ${join(homedir(), '')}
+Du hast Werkzeuge: read_file, list_dir, write_file, run_command, search_wissen.
+Nutze Werkzeuge, um wirklich zu arbeiten, statt zu behaupten, etwas getan zu haben.
+Schreibbefehle und Shell-Kommandos werden vom Benutzer freigegeben - warte auf die Freigabe, wenn sie verlangt wird.
+Antworte auf Deutsch, sachlich und kurz. Zitiere Pfade konkret.`;
+
+/* --------------------------------------------------------------
    HTTP Server
    -------------------------------------------------------------- */
 const httpServer = createServer(async (req, res) => {
@@ -456,8 +494,8 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
-  /* --- Modelle --- */
-  if (path === '/api/models' && req.method === 'GET') {
+  /* --- Modelle (Codex-Liste; mit ?provider= kommt die Provider-Liste) --- */
+  if (path === '/api/models' && req.method === 'GET' && !url.searchParams.get('provider')) {
     try {
       const result = await codexServer.send('model/list');
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -670,6 +708,15 @@ const httpServer = createServer(async (req, res) => {
         if (requestId === undefined || requestId === null) {
           throw new Error('Freigabe-ID fehlt');
         }
+        // Harness-Freigaben (id: "harness-1") laufen ueber den eigenen Mechanismus
+        if (typeof requestId === 'string' && requestId.startsWith('harness-')) {
+          const pending = harnessApprovals.get(requestId);
+          if (!pending) throw new Error('Freigabe-Anfrage nicht mehr offen: ' + requestId);
+          harnessApprovals.delete(requestId);
+          pending(decision || 'decline');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ ok: true, method: 'harness/tool' }));
+        }
         const result = answers
           ? { answers }
           : { decision: decision || 'decline' };
@@ -751,7 +798,7 @@ const httpServer = createServer(async (req, res) => {
     }
   }
 
-  if (path === '/api/models' && req.method === 'GET') {
+  if (path === '/api/models' && req.method === 'GET' && url.searchParams.get('provider')) {
     const providerId = url.searchParams.get('provider') || 'codex';
     try {
       if (providerId === 'codex') {
@@ -794,6 +841,54 @@ const httpServer = createServer(async (req, res) => {
 
         const wanted = provider || 'auto';
         const order = wanted === 'auto' ? ['free', 'openrouter'] : [wanted];
+
+        // Agent-Modus: Modell darf Werkzeuge benutzen (ohne Abo moeglich)
+        if (payload.agent) {
+          const agentProvider = wanted === 'auto' ? 'free' : wanted;
+          const agentModel = model || null;
+          if (stream) {
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive'
+            });
+            const send = (obj) => {
+              try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {}
+              codexServer.broadcastSSE(obj);
+            };
+            send({ type: 'chatStart', provider: agentProvider, model: agentModel, agent: true });
+            try {
+              const out = await harness.run({
+                provider: agentProvider,
+                model: agentModel,
+                messages: msgList,
+                system: HARNESS_SYSTEM_PROMPT,
+                temperature
+              });
+              send({
+                type: 'done',
+                provider: out.provider,
+                model: out.model,
+                answer: out.answer,
+                tools: out.tools,
+                iterations: out.iterations
+              });
+            } catch (e) {
+              console.error('[harness]', e.message);
+              send({ type: 'error', error: e.message });
+            }
+            return res.end();
+          }
+          const out = await harness.run({
+            provider: agentProvider,
+            model: agentModel,
+            messages: msgList,
+            system: HARNESS_SYSTEM_PROMPT,
+            temperature
+          });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify(out));
+        }
 
         if (stream) {
           res.writeHead(200, {

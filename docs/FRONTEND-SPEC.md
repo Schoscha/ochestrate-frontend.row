@@ -138,6 +138,41 @@ Bei Fehler: `data: {"type":"providerError","provider":"free","error":"..."}` und
 `data: {"type":"error","error":"Kein Provider erreichbar"}`.
 Die gleichen Ereignisse laufen **zusätzlich** über `/api/events` — dort kann die UI sie mitlesen.
 
+#### 4.5.1 Agent-Modus (`"agent": true`) — der Agent kann arbeiten
+
+Mit `"agent": true` bekommt das Modell Werkzeuge und kann selbstständig handeln.
+**Das ist der Ersatz für den Codex-App-Server und braucht kein Abo.**
+
+Werkzeuge des Harness:
+
+| Werkzeug | Wirkung | Freigabe |
+|---|---|---|
+| `read_file(path)` | Datei lesen (max. 20 000 Zeichen) | nein |
+| `list_dir(path)` | Ordner auflisten | nein |
+| `write_file(path, content)` | Datei schreiben | **ja** |
+| `run_command(command)` | Shell-Befehl (30 s Timeout) | **ja** |
+| `search_wissen(query, limit)` | im Agenten-Gedächtnis suchen | nein |
+
+Pfade müssen unterhalb von `C:\Users\Neu` liegen, sonst lehnt der Server ab.
+Gefährliche Befehle (`rm -rf`, `format`, `del /f`, `diskpart`, `reg delete`, `shutdown`) werden abgewiesen.
+
+Zusätzliche SSE-Ereignisse im Agent-Modus:
+```
+data: {"type":"toolStart","tool":"read_file","args":{"path":"C:\\..."}}
+data: {"type":"toolEnd","tool":"read_file","ok":true,"result":{ ... }}
+data: {"type":"done","provider":"free","model":"...","answer":"...","tools":[{"tool":"read_file","ok":true}],"iterations":2}
+```
+`done` enthält zusätzlich `tools` (Liste der benutzten Werkzeuge) und `iterations` (Anzahl der Modellschleifen).
+
+Freigabe-Ablauf (gilt für `write_file` und `run_command`):
+1. Der Server sendet `data: {"type":"approval","id":"harness-1","method":"harness/tool","params":{"tool":"write_file","args":{...},"reason":"Datei schreiben: ..."}}`
+2. Die UI zeigt den Grund und fragt nach
+3. Antwort: `POST /api/approve` mit `{"id":"harness-1","decision":"accept"}` (oder `decline`)
+4. Der Server führt aus (oder verwirft) und meldet `toolEnd`
+
+Ohne Freigabe antwortet das Modell nach 10 Minuten Wartezeit automatisch mit „abgelehnt".
+Die UI sollte deshalb einen Freigabe-Button **über** dem Eingabefeld zeigen, nicht versteckt rechts.
+
 ### 4.6 `GET /api/threads` — Sessionliste
 
 ```json
@@ -272,7 +307,9 @@ Ereignisse (alle über `data:`, JSON):
 | `done` | `{ provider, model, answer }` — fertig |
 | `providerError` | `{ provider, error }` |
 | `error` | `{ error }` |
-| `approval` | `{ id, method, params }` — Freigabe nötig |
+| `approval` | `{ id, method, params }` — Freigabe nötig (`method` = `harness/tool` bei eigenen Aktionen) |
+| `toolStart` | `{ tool, args }` — Werkzeug startet (nur im Agent-Modus) |
+| `toolEnd` | `{ tool, ok, result }` — Werkzeug fertig (nur im Agent-Modus) |
 | `item/started`, `item/completed` | `{ params: { item } }` — Codex-Elemente |
 | `turn/started`, `turn/completed` | `{ params: { turn } }` |
 | `thread/status/changed` | Statuswechsel einer Session |
@@ -306,6 +343,9 @@ Keine harten 1-px-Keylines als Haupttrenner — Flächen und Schatten trennen.
 
 - **Eingabe:** `Enter` sendet, `Shift+Enter` macht Zeilenumbruch. Textarea wächst mit (max. 30 % Fensterhöhe).
 - **Standardweg:** Der Chat nutzt `POST /api/chat` mit `provider: "auto"`. **Nicht** über `/api/threads`, solange Codex nicht angemeldet ist.
+- **Agent-Modus:** Wenn die Frage eine Aufgabe ist ("lies die Datei", "schreibe ein Skript", "such im Wissen"),
+  `agent: true` setzen. Das Modell arbeitet dann selbst mit Werkzeugen und fragt bei Schreibbefehlen nach.
+  Der Freigabe-Block gehört **sichtbar über dem Eingabefeld**.
 - **Antwort anzeigen:** Tokens live über `stream: true` (Ereignis `delta`) einblenden, bei `done` den finalen Text setzen.
 - **Provider-Anzeige:** Aktiven Provider und Modell in der Kopfzeile anzeigen („FreeLLMAPI · Qwen3.5-9B").
 - **Modellwahl:** Dropdown aus `/api/models?provider=<aktuell>`; beim Wechsel des Providers die Liste neu laden.
@@ -357,6 +397,7 @@ Optional sinnvoll: `public/manifest.webmanifest` (Name, Farben, `display: standa
 8. Tastaturbedienung vollständig (Tab-Reihenfolge, kein Fokusverlust).
 9. Keine `innerHTML`-Injection aus API-Inhalten — Text immer über `textContent` oder escapen.
 10. Auf einem 390 px breiten Fenster (Handy) ist der Chat ohne horizontales Scrollen bedienbar.
+11. Der Agent-Modus funktioniert: eine Frage nach einer Datei liefert über `toolStart`/`toolEnd` das gelesene Ergebnis; ein Schreibwunsch löst eine Freigabe aus, die mit einem Klick freigegeben wird und die Datei dann wirklich schreibt.
 
 ---
 
