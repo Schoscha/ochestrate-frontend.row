@@ -33,6 +33,13 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Load threads
+  const formatDate = (value) => {
+    if (!value) return 'Kein Datum';
+    const d = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+    if (isNaN(d.getTime())) return 'Kein Datum';
+    return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  };
+
   const loadThreads = async () => {
     try {
       const response = await fetch('/api/threads');
@@ -50,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
       threadsContainer.innerHTML = threads.map(thread => `
         <div class="thread-item" data-thread-id="${thread.id || thread.thread_id}">
           <strong>${thread.title || thread.name || 'Untitled'}</strong>
-          <small>${thread.created_at || thread.createdAt || thread.updated_at || 'Kein Datum'}</small>
+          <small>${formatDate(thread.updatedAt || thread.updated_at || thread.createdAt || thread.created_at)}</small>
         </div>
       `).join('');
 
