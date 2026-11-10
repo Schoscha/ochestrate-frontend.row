@@ -12,6 +12,9 @@ const PORT = process.env.PORT || 8080;
 const PUBLIC_DIR = join(__dirname, 'public');
 const MEMORY_HOST = process.env.MEMORY_HOST || '100.71.9.93';
 const MEMORY_PORT = process.env.MEMORY_PORT || '8798';
+/* Web-Zugriff auf den Vault (Second-Brain) auf dem VPS ueber Filebrowser */
+const VAULT_WEB_BASE = process.env.VAULT_WEB_BASE || 'https://files.sascha-kruss.de/files/srv/root/Second-Brain';
+const STATION_URL = process.env.STATION_URL || 'https://central.sascha-kruss.de/main/';
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -491,6 +494,7 @@ const httpServer = createServer(async (req, res) => {
 
       const results = items.map(it => ({
         path: it.path || it.pfad || null,
+        url: it.path ? `${VAULT_WEB_BASE}/${String(it.path).replace(/^\/+/, '')}` : null,
         title: it.titel || it.title || it.name || 'Ohne Titel',
         snippet: String(it.text || it.description || it.content || '').slice(0, 280),
         text: it.text || it.description || it.content || '',
@@ -503,7 +507,7 @@ const httpServer = createServer(async (req, res) => {
       }));
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ results, count: results.length, query: q, project }));
+      return res.end(JSON.stringify({ results, count: results.length, query: q, project, stationUrl: STATION_URL }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: e.message, results: [] }));

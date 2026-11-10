@@ -123,6 +123,7 @@ Bei `onerror`: 3 s warten, neu verbinden, Status auf „Verbindung verloren" set
   "results": [
     {
       "path": "10-wissen/gedaechtnis/central-station/2026-11-04_0722_central-station-finalisierung.md",
+      "url": "https://files.sascha-kruss.de/files/srv/root/Second-Brain/10-wissen/gedaechtnis/central-station/2026-11-04_0722_central-station-finalisierung.md",
       "title": "Central Station Finalisierung: Zusammentragung aller Besprechungen",
       "snippet": "Erste 280 Zeichen des Textes ...",
       "text": "Vollständiger Text der Notiz",
@@ -136,11 +137,13 @@ Bei `onerror`: 3 s warten, neu verbinden, Status auf „Verbindung verloren" set
   ],
   "count": 6,
   "query": "central-station",
-  "project": "central-station"
+  "project": "central-station",
+  "stationUrl": "https://central.sascha-kruss.de/main/"
 }
 ```
 `limit` Default 8, `project` Default `central-station`. Leeres Ergebnis → `{ "results": [], "count": 0 }`.
 **Kein Fehler werfen**, wenn `results` leer ist — „Keine Treffer" anzeigen.
+`url` ist ein Direktlink auf die Notiz im Vault (Filebrowser) — als „In Vault öffnen" verlinken. `stationUrl` ist die Central Station.
 
 ### 3.7 `POST /api/approve`
 
