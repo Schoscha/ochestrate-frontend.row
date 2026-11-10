@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Codex Web UI</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="logo">Codex Web UI</div>
+      <div id="threads-container">
+        <div class="section-title">Threads</div>
+        <div id="threads-list">Loading...</div>
+      </div>
+      <div class="status" id="status">Disconnected</div>
+    </aside>
+    <main id="main">
+      <div id="chat-container">
+        <div id="chat-messages"></div>
+        <div id="composer">
+          <textarea id="prompt" placeholder="Was soll der Agent tun?" rows="3"></textarea>
+          <div class="composer-row">
+            <button id="send-btn">Senden</button>
+            <button id="interrupt-btn" disabled>Interrupt</button>
+          </div>
+        </div>
+      </div>
+      <div id="wissen-panel">
+        <div class="section-title">Wissen</div>
+        <input id="wissen-search" placeholder="Wissen suchen...">
+        <div id="wissen-results"></div>
+      </div>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
