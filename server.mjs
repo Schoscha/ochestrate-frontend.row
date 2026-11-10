@@ -32,6 +32,14 @@ class MemoryMCP {
     this.sessionId = null;
     this.initialized = false;
     this.initPromise = null;
+    this.lastError = null;
+    this.lastOkAt = null;
+  }
+
+  resetSession() {
+    this.sessionId = null;
+    this.initialized = false;
+    this.initPromise = null;
   }
 
   async ensureInit() {
@@ -66,6 +74,28 @@ class MemoryMCP {
   }
 
   async recall(query, project = 'central-station', limit = 8) {
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const items = await this.recallOnce(query, project, limit);
+        this.lastError = null;
+        this.lastOkAt = Date.now();
+        return items;
+      } catch (err) {
+        lastErr = err;
+        this.lastError = err.message;
+        // Session kann auf der MCP-Seite abgelaufen sein -> neu aufbauen und einmal wiederholen
+        this.resetSession();
+        if (attempt === 0) {
+          console.error('[memory-mcp] Abruf fehlgeschlagen, neue Session: ' + err.message);
+          continue;
+        }
+      }
+    }
+    throw lastErr;
+  }
+
+  async recallOnce(query, project, limit) {
     await this.ensureInit();
     const res = await fetch(`http://${MEMORY_HOST}:${MEMORY_PORT}/mcp`, {
       method: 'POST',
@@ -85,43 +115,66 @@ class MemoryMCP {
       })
     });
     const text = await res.text();
-    const lines = text.trim().split('\n');
-    let parsed = null;
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        parsed = JSON.parse(line.substring(6));
-      }
+    if (!res.ok) throw new Error(`MCP HTTP ${res.status}: ${text.slice(0, 200)}`);
+    const parsed = parseSseJson(text);
+    if (!parsed) throw new Error('Keine MCP-Daten (unerwartetes Antwortformat): ' + text.slice(0, 200));
+    if (parsed.error) throw new Error(parsed.error.message || 'MCP-Fehler');
+    if (parsed.result && parsed.result.isError) {
+      const c = parsed.result.content && parsed.result.content[0];
+      throw new Error('MCP-Tool-Fehler: ' + (c && c.text ? String(c.text).slice(0, 200) : 'unbekannt'));
     }
-    if (!parsed) throw new Error('Keine MCP-Daten');
-    if (parsed.error) throw new Error(parsed.error.message);
-    let result = parsed.result || parsed;
-    let items = [];
-    if (typeof result === 'object' && result !== null) {
-      if (Array.isArray(result)) {
-        items = result;
-      } else if (result.content && Array.isArray(result.content)) {
-        // parse inner text if needed
-        const inner = result.content.map(c => {
-          if (c.type === 'text' && c.text) {
-            try { return JSON.parse(c.text); } catch { return null; }
-          }
-          return c;
-        }).filter(r => r);
-        items = Array.isArray(inner) ? inner : [inner];
-      } else if (result.content && result.content.length === 1 && result.content[0].type === 'text') {
-        try { items = [JSON.parse(result.content[0].text)]; } catch { items = [result]; }
-      } else if ('items' in result && Array.isArray(result.items)) {
-        items = result.items;
-      } else if ('items' in result && typeof result.items === 'object') {
-        // treat single object result as array item
-        items = [result];
-      } else {
-        // treat direct result as the item(s)
-        items = Array.isArray(result) ? result : [result];
+    return extractItems(parsed);
+  }
+}
+
+/* Antwort des MCP-Servers auswerten: SSE ("data: {...}") oder reines JSON */
+function parseSseJson(text) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('{')) {
+    try { return JSON.parse(trimmed); } catch { /* weiter mit SSE */ }
+  }
+  let parsed = null;
+  for (const line of trimmed.split(/\r?\n/)) {
+    if (!line.startsWith('data:')) continue;
+    const payload = line.substring(5).trim();
+    if (!payload || payload === '[DONE]') continue;
+    try { parsed = JSON.parse(payload); } catch { /* unparsbare Zeile ueberspringen */ }
+  }
+  return parsed;
+}
+
+/* Notizen aus der MCP-Antwort ziehen (content-Array, structuredContent oder Direktliste) */
+function extractItems(parsed) {
+  const result = parsed.result || parsed;
+  if (!result) return [];
+
+  if (Array.isArray(result.content)) {
+    const items = [];
+    for (const c of result.content) {
+      if (!c || c.type !== 'text' || !c.text) continue;
+      try {
+        const parsedText = JSON.parse(c.text);
+        if (Array.isArray(parsedText)) items.push(...parsedText);
+        else if (parsedText && typeof parsedText === 'object') items.push(parsedText);
+      } catch {
+        items.push({ titel: String(c.text).slice(0, 120), text: String(c.text) });
       }
     }
     return items;
   }
+
+  const sc = result.structuredContent;
+  if (sc) {
+    if (Array.isArray(sc)) return sc;
+    if (Array.isArray(sc.items)) return sc.items;
+    if (Array.isArray(sc.results)) return sc.results;
+    if (typeof sc === 'object') return [sc];
+  }
+
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result.items)) return result.items;
+  return [];
 }
 
 const memory = new MemoryMCP();
@@ -278,9 +331,20 @@ const httpServer = createServer(async (req, res) => {
 
   /* --- Health --- */
   if (path === '/api/health') {
-    await memory.ensureInit();
+    try {
+      await memory.ensureInit();
+    } catch (e) {
+      memory.lastError = e.message;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ ok: true, codex: !!codexServer.codex, memory: memory.sessionId ? 'ok' : 'init' }));
+    return res.end(JSON.stringify({
+      ok: true,
+      codex: !!codexServer.codex,
+      memory: memory.sessionId ? (memory.lastError ? 'error' : 'ok') : 'init',
+      memoryError: memory.lastError || null,
+      memoryLastOk: memory.lastOkAt || null,
+      uptime: Math.round(process.uptime())
+    }));
   }
 
   /* --- SSE Events --- */
@@ -310,11 +374,25 @@ const httpServer = createServer(async (req, res) => {
   if (path === '/api/threads' && req.method === 'GET') {
     try {
       const result = await codexServer.send('thread/list');
+      const raw = (result && (result.data || result.threads)) || [];
+      const list = Array.isArray(raw) ? raw : [];
+      const threads = list.map(t => ({
+        id: t.id,
+        name: t.name || null,
+        title: t.name || (t.preview ? String(t.preview).split('\n')[0].slice(0, 90) : 'Ohne Titel'),
+        preview: t.preview ? String(t.preview).slice(0, 400) : '',
+        model: t.model || null,
+        provider: t.modelProvider || null,
+        createdAt: t.createdAt || null,
+        updatedAt: t.updatedAt || null,
+        path: t.path || null,
+        cwd: t.cwd || null
+      }));
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify(result));
+      return res.end(JSON.stringify({ threads, count: threads.length, data: threads }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: e.message, threads: [] }));
+      return res.end(JSON.stringify({ error: e.message, threads: [], count: 0 }));
     }
   }
 
@@ -400,22 +478,32 @@ const httpServer = createServer(async (req, res) => {
 
       let items = [];
       try {
-        const result = await memory.recall(q, project, limit);
-        items = result.items || result || [];
+        items = await memory.recall(q, project, limit);
+        // Projektfilter kann alles ausschliessen -> ohne Filter erneut versuchen
+        if (!items.length && project) {
+          const withoutProject = await memory.recall(q, '', limit).catch(() => []);
+          if (withoutProject.length) items = withoutProject;
+        }
       } catch (mcpErr) {
         console.error('[memory-mcp] ' + mcpErr.message);
         items = [];
       }
 
       const results = items.map(it => ({
+        path: it.path || it.pfad || null,
         title: it.titel || it.title || it.name || 'Ohne Titel',
-        description: it.text || it.description || it.content || '',
-        project: it.projekt || it.project || project,
+        snippet: String(it.text || it.description || it.content || '').slice(0, 280),
+        text: it.text || it.description || it.content || '',
+        project: it.projekt || it.project || project || 'global',
+        category: it.kategorie || it.category || null,
+        author: it.autor || it.author || null,
+        tags: it.tags || [],
+        created: it.erstellt || it.created || null,
         score: it.score || 0
       }));
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ results, count: results.length }));
+      return res.end(JSON.stringify({ results, count: results.length, query: q, project }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: e.message, results: [] }));
