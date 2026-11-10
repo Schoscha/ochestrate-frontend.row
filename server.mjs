@@ -198,6 +198,9 @@ class CodexServer {
     this.serverRequests = new Map();
     this.sseClients = new Set();
     this.ready = false;
+    this.authenticated = false;
+    this.authCheckedAt = 0;
+    this.authReason = null;
     this.startCodex();
   }
 
@@ -360,6 +363,26 @@ class CodexServer {
       at: a.at,
       summary: a.params.reason || a.params.command || a.params.title || a.method
     }));
+  }
+
+  /**
+   * Ist der Codex-Server ueberhaupt nutzbar? Ohne Anmeldung kommt von api.openai.com
+   * ein 401 - dann wird auf die Provider-Kette ausgewichen.
+   */
+  async isAuthenticated() {
+    if (this.authCheckedAt && Date.now() - this.authCheckedAt < 60000) {
+      return this.authenticated;
+    }
+    this.authCheckedAt = Date.now();
+    try {
+      const result = await this.send('account/read', {}, 1);
+      this.authenticated = !(result && result.requiresOpenaiAuth);
+      this.authReason = this.authenticated ? null : 'Nicht angemeldet - codex login auf dem Lenovo noetig';
+    } catch (e) {
+      this.authenticated = false;
+      this.authReason = e.message;
+    }
+    return this.authenticated;
   }
 
   broadcastSSE(msg) {
@@ -563,21 +586,71 @@ const httpServer = createServer(async (req, res) => {
     req.on('data', c => body += c);
     req.on('end', async () => {
       try {
-        const { model, approvalPolicy, cwd, prompt } = JSON.parse(body || '{}');
-        const started = await codexServer.send('thread/start', {
-          model: model || undefined,
-          cwd: cwd || undefined,
-          approvalPolicy: approvalPolicy || undefined
-        });
-        const thread = (started && started.thread) || started;
-        if (prompt && thread && thread.id) {
-          await codexServer.send('turn/start', {
-            threadId: thread.id,
-            input: [{ type: 'text', text: prompt }]
-          });
+        const { model, approvalPolicy, cwd, prompt, provider } = JSON.parse(body || '{}');
+
+        // Ohne angemeldetes Codex-Konto (oder auf Wunsch) ueber die Provider-Kette laufen
+        const codexUsable = await codexServer.isAuthenticated();
+        const useProvider = provider && provider !== 'codex' ? true : !codexUsable;
+        if (!useProvider) {
+          try {
+            const started = await codexServer.send('thread/start', {
+              model: model || undefined,
+              cwd: cwd || undefined,
+              approvalPolicy: approvalPolicy || undefined
+            });
+            const thread = (started && started.thread) || started;
+            if (prompt && thread && thread.id) {
+              await codexServer.send('turn/start', {
+                threadId: thread.id,
+                input: [{ type: 'text', text: prompt }]
+              });
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ ...thread, id: thread?.id || null }));
+          } catch (e) {
+            console.error('[threads] Codex-Pfad nicht verfuegbar, weiche auf Provider um:', e.message);
+          }
         }
+
+        // Provider-Kette: Antwort streamen und als turnCompleted melden
+        const order = provider && provider !== 'auto' ? [provider] : ['free', 'openrouter'];
+        let answer = '';
+        let usedProvider = null;
+        let usedModel = null;
+        let lastError = null;
+        for (const id of order) {
+          try {
+            const out = await providerRegistry.chatStream(id, {
+              model,
+              messages: [{ role: 'user', content: prompt || '' }],
+              onDelta: (text) => {
+                answer += text;
+                codexServer.broadcastSSE({ type: 'delta', provider: id, text });
+              }
+            });
+            usedProvider = out.provider;
+            usedModel = out.model;
+            break;
+          } catch (e) {
+            lastError = e;
+            console.error('[provider:' + id + ']', e.message);
+          }
+        }
+        if (!usedProvider) {
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: lastError ? lastError.message : 'Kein Provider erreichbar' }));
+        }
+        codexServer.broadcastSSE({ type: 'turnCompleted', params: { turn: { text: answer } } });
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ ...thread, id: thread?.id || null }));
+        return res.end(JSON.stringify({
+          id: 'local-' + Date.now(),
+          title: (prompt || '').slice(0, 60),
+          name: (prompt || '').slice(0, 60),
+          model: usedModel,
+          provider: usedProvider,
+          local: true,
+          answer
+        }));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ error: e.message }));

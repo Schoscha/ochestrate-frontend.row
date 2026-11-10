@@ -179,12 +179,18 @@ Der Verlauf kommt aus dem Codex-Server — für providerbasierte Chats (4.5) hä
 Antwort: `{ "ok": true, "result": { ... } }` bzw. `{ "error": "..." }` mit HTTP 500.
 `GET /api/threads/{id}/goal` liefert das gesetzte Ziel.
 
-### 4.9 `POST /api/threads` — Codex-Session starten
+### 4.9 `POST /api/threads` — Session starten
 
-Request: `{ "model": "gpt-6-astra", "approvalPolicy": null, "cwd": null, "prompt": "Text" }`
-Antwort: `{ "id": "...", "model": "...", ... }`
-**Wichtig:** Diese Route braucht ein angemeldetes Codex-Konto. Wenn `/api/providers` für `codex`
-`ready: false` meldet, ist der normale Weg `/api/chat` (4.5).
+Request: `{ "model": "gpt-6-astra", "approvalPolicy": null, "cwd": null, "prompt": "Text", "provider": null }`
+Antwort (Codex-Pfad): `{ "id": "...", "model": "...", ... }`
+Antwort (Provider-Pfad, wenn Codex nicht angemeldet ist):
+```json
+{ "id": "local-1789292173808", "title": "Text", "name": "Text", "model": "Qwen3.5-9B-Q4_K_M.gguf", "provider": "free", "local": true, "answer": "Antwort" }
+```
+**Wichtig:** Der Server wählt selbst. Ist Codex nicht angemeldet (`/api/providers` → `codex.ready === false`),
+läuft die Anfrage automatisch über FreeLLMAPI, danach OpenRouter. Die Antwort kommt zusätzlich als SSE
+(`delta`, danach `turnCompleted`). Das neue Frontend soll trotzdem `POST /api/chat` nutzen (4.5) — dort
+ist der Provider explizit wählbar.
 
 ### 4.10 Freigaben (Codex fragt, die UI antwortet)
 
