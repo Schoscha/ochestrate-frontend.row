@@ -112,8 +112,15 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
   background: var(--bg-base); border-right: 1px solid var(--border-base); width: 46px; flex: none;
   transition: width .16s ease;
 }
-.rail.collapsed { width: 13px; padding: 8px 0; overflow: hidden; }
+.rail.collapsed { width: 22px; padding: 0; overflow: hidden; background: #b3261e; border-color: #8c1d18; }
 .rail.collapsed .rail-btn, .rail.collapsed .rail-label, .rail.collapsed .rail-toggle { display: none; }
+.rail-tab { display: none; }
+.rail.collapsed .rail-tab {
+  display: grid; place-items: center; width: 100%; height: 100%; min-height: 90px;
+  background: #e5484d; color: #fff; border: none; cursor: pointer; font-size: 17px; font-weight: 700;
+}
+.rail.collapsed .rail-tab:hover { background: #ff6369; }
+#left.collapsed .rail-tab { position: absolute; left: 0; top: var(--top-h); height: 120px; z-index: 25; }
 .rail .rail-toggle { margin-top: auto; }
 .rail-btn {
   display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--radius);
@@ -124,13 +131,18 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .rail-label { font-size: 10px; color: var(--text-faint); writing-mode: vertical-rl; margin-top: 6px; }
 
 /* Linke Spalte: Rail + Sessionliste, Liste einklappbar */
-#left { grid-area: left; display: flex; min-height: 0; background: var(--bg-base); border-right: 1px solid var(--border-base); }
+#left { grid-area: left; display: flex; min-height: 0; background: var(--bg-base); border-right: 1px solid var(--border-base); position: relative; }
 #left-content { width: 280px; flex: none; display: flex; flex-direction: column; min-height: 0; }
+#left.collapsed { background: #b3261e; border-right: none; }
 #left.collapsed #left-content { display: none; }
-#left.collapsed { border-right: none; }
+#left.collapsed #left-rail { width: 22px; background: #b3261e; border-color: #8c1d18; }
+#left.collapsed #left-rail .rail-btn { display: none; }
+#left.collapsed .rail-tab { display: grid; }
+#left .rail-tab { position: absolute; left: 0; top: var(--top-h); height: 120px; width: 22px; z-index: 25; }
 
 /* Dock rechts: Rail, einklappbar */
 #dock { grid-area: dock; display: flex; min-height: 0; }
+#dock.collapsed { background: #b3261e; border-left-color: #8c1d18; }
 #dock .rail { border-right: none; border-left: 1px solid var(--border-base); }
 
 /* Composer: volle Breite des inneren Bereichs, unten buendig */

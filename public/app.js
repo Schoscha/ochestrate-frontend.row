@@ -506,15 +506,7 @@ function railButton(type, side) {
 }
 
 async function addWidget(type) {
-  const count = (state.layout.widgets || []).length;
-  const step = count % 6;
-  const res = await post('/api/layout', {
-    action: 'add', type,
-    x: Math.min(64, 4 + step * 11),
-    y: Math.min(62, 4 + (step % 3) * 13),
-    w: type === 'term' ? 45 : 38,
-    h: type === 'term' ? 55 : 45
-  });
+  const res = await post('/api/layout', { action: 'add', type, w: type === 'term' ? 45 : 38, h: type === 'term' ? 55 : 45 });
   state.layout = res;
   renderCanvas();
 }
@@ -865,6 +857,14 @@ function setup() {
   $('#toggle-left').addEventListener('click', () => $('#left').classList.toggle('collapsed'));
   $('#toggle-right').addEventListener('click', () => $('#dock').classList.toggle('collapsed'));
   $('#dock-toggle').addEventListener('click', () => $('#dock').classList.toggle('collapsed'));
+  $('#left-tab').addEventListener('click', () => $('#left').classList.remove('collapsed'));
+  $('#right-tab').addEventListener('click', () => $('#dock').classList.remove('collapsed'));
+  $('#clear-canvas').addEventListener('click', async () => {
+    const res = await post('/api/layout', { action: 'clear' });
+    state.layout = res;
+    renderCanvas();
+    renderTabs();
+  });
   $('#add-module').addEventListener('click', (e) => {
     e.stopPropagation();
     $('#module-menu').classList.toggle('open');

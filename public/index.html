@@ -32,6 +32,7 @@
     </div>
     <div class="topbar-right">
       <button class="btn ghost small" id="add-module" title="Modul hinzufuegen">+ Modul</button>
+      <button class="btn ghost small" id="clear-canvas" title="Alle Module entfernen und neu anordnen">Leeren</button>
       <span class="pill" id="agent-pill" hidden>Agent</span>
       <span class="dot" id="conn-dot" title="Verbindung"></span>
       <button class="icon-btn" id="theme-toggle" aria-label="Farbschema wechseln" title="Hell / Dunkel">
@@ -49,6 +50,7 @@
   <!-- Linke Spalte: Modul-Rail + Sessions -->
   <aside id="left">
     <nav id="left-rail" class="rail" aria-label="Module hinzufuegen"></nav>
+    <button class="rail-tab" id="left-tab" title="Seitenleiste oeffnen" aria-label="Seitenleiste oeffnen">›</button>
     <div id="left-content">
       <div class="left-head">
         <button class="btn primary" id="new-session">
@@ -102,6 +104,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
     </button>
     <button class="rail-btn rail-toggle" id="dock-toggle" title="Leiste einklappen" aria-label="Leiste einklappen">›</button>
+    <button class="rail-tab" id="right-tab" title="Leiste oeffnen" aria-label="Leiste oeffnen">‹</button>
   </nav>
 
   <!-- Modul-Menue oben -->

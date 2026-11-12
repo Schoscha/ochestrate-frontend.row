@@ -29,6 +29,35 @@ function nextId(type) {
   return 'w-' + type + '-' + Date.now().toString(36).slice(-4) + seq;
 }
 
+/** Erstes freies Rasterfeld (4x4 zu je 25%), das kein bestehendes Widget schneidet. */
+function freeSlot(widgets, w, h) {
+  const cell = 25;
+  const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      const cand = { x: col * cell, y: row * cell, w: Math.min(w, cell * 4 - col * cell), h: Math.min(h, cell * 4 - row * cell) };
+      if (cand.w < 10 || cand.h < 8) continue;
+      if (!widgets.some(existing => overlaps(cand, existing))) return { x: cand.x, y: cand.y };
+    }
+  }
+  const n = widgets.length;
+  return null;
+}
+
+/** Wenn kein Platz mehr frei ist: alle Widgets ueberlappungsfrei neu kacheln. */
+function tileAll(widgets, extra) {
+  const all = [...widgets, extra];
+  const cols = all.length <= 4 ? 2 : all.length <= 9 ? 3 : 4;
+  const rows = Math.ceil(all.length / cols);
+  const cw = 100 / cols, ch = 100 / rows;
+  all.forEach((w, i) => {
+    w.x = Math.round((i % cols) * cw);
+    w.y = Math.round(Math.floor(i / cols) * ch);
+    w.w = Math.round(cw);
+    w.h = Math.round(ch);
+  });
+}
+
 export class Layout {
   constructor(file, dir) {
     this.file = file;
@@ -105,8 +134,20 @@ export class Layout {
           action.title ? { title: action.title } : {},
           action.state ? { state: action.state } : {}
         );
+        // Freien Platz suchen, damit sich Widgets nicht ueberlagern
+        const slot = freeSlot(widgets, w.w, w.h);
+        if (slot) { w.x = slot.x; w.y = slot.y; }
+        else tileAll(widgets, w);
         widgets.push(w);
         this.focus(w.id);
+        break;
+      }
+      case 'clear': {
+        this.state.widgets = [
+          { ...this.makeWidget('chat', 0, 0, 38, 100), id: 'w-chat' },
+          { ...this.makeWidget('term', 38, 0, 62, 100), id: 'w-term' }
+        ];
+        this.state.preset = 'uebersicht';
         break;
       }
       case 'remove': {
