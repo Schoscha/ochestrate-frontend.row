@@ -287,6 +287,39 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 .kv span { color: var(--text-faint); }
 
 /* =============================================================
+   Terminal-Bloecke (1x1 / 2x2 / 2x1 / 1x2)
+   ============================================================= */
+.leisten { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 10px; border-bottom: 1px solid var(--border-muted); }
+.leiste {
+  padding: 3px 9px; border-radius: var(--radius-pill); font-size: 11.5px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border-base); color: var(--text-faint);
+}
+.leiste.on { background: rgba(59, 92, 246, .14); border-color: rgba(59,92,246,.45); color: var(--accent-text); }
+
+.term-grid { flex: 1; display: grid; gap: 6px; padding: 8px; align-content: start; }
+.term-grid[data-grid="1x1"] { grid-template-columns: 1fr; }
+.term-grid[data-grid="2x2"] { grid-template-columns: 1fr 1fr; }
+.term-grid[data-grid="2x1"] { grid-template-columns: 1fr 1fr; }
+.term-grid[data-grid="1x2"] { grid-template-columns: 1fr; }
+.term-pane {
+  display: flex; flex-direction: column; min-height: 190px; max-height: 46vh;
+  background: var(--bg-deep); border: 1px solid var(--border-base); border-radius: var(--radius); overflow: hidden;
+}
+.term-head {
+  display: flex; align-items: center; gap: 6px; padding: 5px 8px;
+  background: var(--bg-layer-1); border-bottom: 1px solid var(--border-muted);
+}
+.term-head .name { font-size: 11.5px; font-weight: 600; }
+.term-head .spacer { flex: 1; }
+.term-out {
+  flex: 1; margin: 0; padding: 7px 9px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.45; color: var(--text-base);
+}
+.term-line { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-top: 1px solid var(--border-muted); }
+.term-line .prompt { color: var(--accent-text); font-family: var(--font-mono); font-size: 12px; }
+.term-line input { flex: 1; font-family: var(--font-mono); font-size: 12px; padding: 4px 7px; }
+
+/* =============================================================
    Statusleiste
    ============================================================= */
 #statusbar {

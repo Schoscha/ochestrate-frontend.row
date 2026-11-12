@@ -29,5 +29,26 @@
         "at": 1794482499
       }
     ]
+  },
+  {
+    "id": "s-mwdh7dyg-dcqja",
+    "name": "Antworte mit einem Wort",
+    "model": null,
+    "provider": "free",
+    "createdAt": 1794483603,
+    "updatedAt": 1794483603,
+    "archived": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Antworte mit einem Wort",
+        "at": 1794483603
+      },
+      {
+        "role": "assistant",
+        "content": "Ja",
+        "at": 1794483603
+      }
+    ]
   }
 ]

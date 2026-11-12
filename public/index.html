@@ -96,6 +96,7 @@
       <button class="tab" data-tab="rowboat" role="tab">Rowboat</button>
       <button class="tab" data-tab="werkzeuge" role="tab">Werkzeuge</button>
       <button class="tab" data-tab="provider" role="tab">Provider</button>
+      <button class="tab" data-tab="terminal" role="tab">Terminal</button>
     </div>
 
     <section class="tabpanel active" data-panel="wissen">
@@ -156,6 +157,21 @@
     <section class="tabpanel" data-panel="provider">
       <div class="panel-head"><span class="panel-title">Provider</span></div>
       <div id="provider-body" class="scroll"></div>
+    </section>
+
+    <section class="tabpanel" data-panel="terminal">
+      <div class="panel-head">
+        <span class="panel-title">Terminals</span>
+        <select id="grid-select" aria-label="Aufteilung">
+          <option value="1x1">1 Feld</option>
+          <option value="2x2">2x2 Felder</option>
+          <option value="2x1">2x1 Felder</option>
+          <option value="1x2">1x2 Felder</option>
+        </select>
+        <button class="btn ghost small" id="term-new">Neu</button>
+      </div>
+      <div class="leisten" id="leisten" aria-label="Leisten ein- und ausschalten"></div>
+      <div id="term-grid" class="term-grid"></div>
     </section>
   </aside>
 

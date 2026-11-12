@@ -1,0 +1,13 @@
+{
+  "panels": [
+    "terminal",
+    "wissen",
+    "werkzeuge",
+    "provider",
+    "rowboat"
+  ],
+  "active": "wissen",
+  "grid": "2x2",
+  "rightOpen": true,
+  "leftOpen": true
+}

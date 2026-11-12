@@ -9,6 +9,8 @@ import { Harness, TOOLS as HARNESS_TOOLS } from './harness.mjs';
 import { SessionStore } from './sessions.mjs';
 import { PluginRegistry } from './plugins.mjs';
 import { Rowboat } from './rowboat.mjs';
+import { TerminalManager } from './terminals.mjs';
+import { Layout } from './layout.mjs';
 import { listSkills, listMcpServers } from './local-inventory.mjs';
 
 const fetch = globalThis.fetch.bind(globalThis);
@@ -220,6 +222,11 @@ providerRegistry.ensureKeys().catch(() => {});
 const pluginRegistry = new PluginRegistry(PLUGINS_DIR);
 const sessionStore = new SessionStore(join(DATA_DIR, 'sessions.json'));
 const rowboat = new Rowboat({ memory });
+const layout = new Layout(join(DATA_DIR, 'layout.json'));
+const terminals = new TerminalManager({
+  broadcast: event => broadcast(event),
+  cwd: homedir()
+});
 
 const HARNESS_SYSTEM = `Du bist der Codex-Agent auf dem Rechner von Sascha (Windows).
 Arbeitsverzeichnis: ${homedir()}
@@ -618,6 +625,43 @@ const httpServer = createServer(async (req, res) => {
       if (decision !== 'accept' && decision !== 'acceptForSession') return json(res, 200, { ok: false, denied: true });
       const out = await rowboat.launchTask(payload);
       return json(res, 200, out);
+    }
+
+    /* ---------- Terminal-Bloecke ---------- */
+    if (path === '/api/terminals' && req.method === 'GET') {
+      return json(res, 200, { terminals: terminals.list(), count: terminals.list().length, grid: layout.state.grid });
+    }
+    if (path === '/api/terminals' && req.method === 'POST') {
+      const payload = await readBody(req);
+      const pane = terminals.create(payload);
+      broadcast({ type: 'terminal:created', id: pane.id, name: pane.name, shell: pane.shell });
+      return json(res, 200, pane);
+    }
+    const terminalRoute = path.match(/^\/api\/terminals\/([A-Za-z0-9\-]+)(?:\/([a-zA-Z]+))?$/);
+    if (terminalRoute && req.method === 'POST') {
+      const payload = await readBody(req);
+      const sub = terminalRoute[2];
+      if (sub === 'input') return json(res, 200, terminals.input(terminalRoute[1], payload.data ?? ''));
+      if (sub === 'close') return json(res, 200, terminals.close(terminalRoute[1]));
+      if (sub === 'clear') return json(res, 200, terminals.clear(terminalRoute[1]));
+      return json(res, 404, { error: 'Unbekannte Terminal-Aktion: ' + sub });
+    }
+
+    /* ---------- Layout der Arbeitsflaeche ---------- */
+    if (path === '/api/layout' && req.method === 'GET') {
+      return json(res, 200, layout.get());
+    }
+    if (path === '/api/layout' && req.method === 'POST') {
+      const payload = await readBody(req);
+      const state = layout.set(payload);
+      broadcast({ type: 'layout', layout: state });
+      return json(res, 200, state);
+    }
+    if (path === '/api/layout/toggle' && req.method === 'POST') {
+      const payload = await readBody(req);
+      const state = layout.toggle(payload.panel);
+      broadcast({ type: 'layout', layout: state });
+      return json(res, 200, state);
     }
 
     /* ---------- Freigaben ---------- */

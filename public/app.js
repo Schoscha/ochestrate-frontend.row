@@ -420,6 +420,15 @@ function connectSSE() {
       showApproval(evt);
     } else if (evt.type === 'error') {
       $('#conn-dot').className = 'dot err';
+    } else if (evt.type === 'terminal:output') {
+      appendTerminalOutput(evt.id, evt.data);
+    } else if (evt.type === 'terminal:exit') {
+      const box = document.querySelector(`.term-pane[data-id="${evt.id}"] .term-head .name`);
+      if (box) box.textContent += ' (beendet)';
+    } else if (evt.type === 'layout') {
+      state.layout = evt.layout;
+      applyLayout(evt.layout);
+      renderLeisten(evt.layout);
     }
   };
   source.onerror = () => {
@@ -434,6 +443,101 @@ async function pollHealth() {
   $('#st-memory').textContent = 'Wissen: ' + (data.memory || '–');
   $('#st-version').textContent = 'v' + (state.info?.version || '?') + ' · ' + Math.round(data.uptime / 60) + ' min';
   $('#conn-dot').className = 'dot ' + (data.ok ? 'ok' : 'err');
+}
+
+/* ---------------- Terminal-Bloecke und Leisten ---------------- */
+const PANELS = ['wissen', 'rowboat', 'werkzeuge', 'provider', 'terminal'];
+
+async function loadLayout() {
+  const data = await api('/api/layout');
+  state.layout = data;
+  applyLayout(data);
+  renderLeisten(data);
+}
+
+function applyLayout(data) {
+  $('#grid-select').value = data.grid || '2x2';
+  $('#term-grid').dataset.grid = data.grid || '2x2';
+  // nur aktive Leisten als Tabs zeigen
+  const tabs = $$('.tab');
+  tabs.forEach(t => t.classList.toggle('hidden', !(data.panels || []).includes(t.dataset.tab)));
+  if (!(data.panels || []).includes($('.tab.active')?.dataset.tab)) {
+    const first = tabs.find(t => !(data.panels || []).includes(t.dataset.tab) === false);
+    if (first) first.click();
+  }
+}
+
+function renderLeisten(data) {
+  const box = $('#leisten');
+  box.innerHTML = '';
+  for (const panel of PANELS) {
+    const on = (data.panels || []).includes(panel);
+    const btn = el('button', 'leiste' + (on ? ' on' : ''), panel.charAt(0).toUpperCase() + panel.slice(1));
+    btn.addEventListener('click', async () => {
+      const next = await post('/api/layout/toggle', { panel });
+      state.layout = next;
+      applyLayout(next);
+      renderLeisten(next);
+    });
+    box.appendChild(btn);
+  }
+}
+
+async function createTerminal(shell) {
+  const pane = await post('/api/terminals', { shell: shell || 'powershell' });
+  addTerminalPane(pane);
+  return pane;
+}
+
+function addTerminalPane(pane) {
+  const grid = $('#term-grid');
+  const box = el('div', 'term-pane');
+  box.dataset.id = pane.id;
+  const head = el('div', 'term-head');
+  head.appendChild(el('span', 'name', pane.name || 'Shell'));
+  head.appendChild(el('span', 'spacer'));
+  const clearBtn = el('button', 'icon-btn', '×');
+  clearBtn.title = 'Terminal schliessen';
+  clearBtn.addEventListener('click', async () => {
+    await post('/api/terminals/' + pane.id + '/close', {});
+    box.remove();
+  });
+  head.appendChild(clearBtn);
+  box.appendChild(head);
+
+  const out = el('pre', 'term-out', '');
+  box.appendChild(out);
+
+  const line = el('div', 'term-line');
+  line.appendChild(el('span', 'prompt', '>'));
+  const input = el('input');
+  input.type = 'text';
+  input.placeholder = 'Befehl eingeben und Enter druecken';
+  input.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const value = input.value;
+    input.value = '';
+    out.textContent += '> ' + value + '\n';
+    await post('/api/terminals/' + pane.id + '/input', { data: value });
+  });
+  line.appendChild(input);
+  box.appendChild(line);
+
+  grid.appendChild(box);
+  return box;
+}
+
+function appendTerminalOutput(id, data) {
+  const box = document.querySelector(`.term-pane[data-id="${id}"] .term-out`);
+  if (!box) return;
+  box.textContent += data;
+  box.scrollTop = box.scrollHeight;
+}
+
+async function initTerminals() {
+  const data = await api('/api/terminals');
+  for (const pane of data.terminals || []) addTerminalPane(pane);
+  if (!(data.terminals || []).length) await createTerminal('powershell');
 }
 
 /* ---------------- Ereignisse ---------------- */
@@ -504,6 +608,13 @@ function setup() {
   $('#rowboat-reload').addEventListener('click', loadRowboat);
   $('#plugins-reload').addEventListener('click', loadWerkzeuge);
 
+  $('#grid-select').addEventListener('change', async (e) => {
+    const next = await post('/api/layout', { grid: e.target.value });
+    state.layout = next;
+    applyLayout(next);
+  });
+  $('#term-new').addEventListener('click', () => createTerminal('powershell'));
+
   $('#briefing-save').addEventListener('click', async () => {
     const out = await post('/api/rowboat/briefing', {
       title: $('#briefing-title').value,
@@ -540,6 +651,8 @@ async function init() {
   await loadProviders();
   await loadSessions();
   await loadWerkzeuge();
+  await loadLayout();
+  await initTerminals();
   connectSSE();
   pollHealth();
   setInterval(pollHealth, 5000);
