@@ -100,11 +100,60 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
    ============================================================= */
 #app {
   display: grid; height: 100vh;
-  grid-template-columns: var(--left-w) minmax(0, 1fr) 46px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: var(--top-h) minmax(0, 1fr) var(--status-h);
   grid-template-areas: "top top top" "left center dock" "status status status";
   background: var(--bg-deep);
 }
+
+/* Modul-Rail (links und rechts), einklappbar zu einer schmalen Lasche */
+.rail {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0;
+  background: var(--bg-base); border-right: 1px solid var(--border-base); width: 46px; flex: none;
+  transition: width .16s ease;
+}
+.rail.collapsed { width: 13px; padding: 8px 0; overflow: hidden; }
+.rail.collapsed .rail-btn, .rail.collapsed .rail-label, .rail.collapsed .rail-toggle { display: none; }
+.rail .rail-toggle { margin-top: auto; }
+.rail-btn {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--radius);
+  background: transparent; border: 1px solid transparent; color: var(--text-muted); cursor: pointer;
+}
+.rail-btn:hover { background: var(--overlay-hover); color: var(--text-base); }
+.rail-btn.active { background: rgba(59,92,246,.16); border-color: rgba(59,92,246,.45); color: var(--accent-text); }
+.rail-label { font-size: 10px; color: var(--text-faint); writing-mode: vertical-rl; margin-top: 6px; }
+
+/* Linke Spalte: Rail + Sessionliste, Liste einklappbar */
+#left { grid-area: left; display: flex; min-height: 0; background: var(--bg-base); border-right: 1px solid var(--border-base); }
+#left-content { width: 280px; flex: none; display: flex; flex-direction: column; min-height: 0; }
+#left.collapsed #left-content { display: none; }
+#left.collapsed { border-right: none; }
+
+/* Dock rechts: Rail, einklappbar */
+#dock { grid-area: dock; display: flex; min-height: 0; }
+#dock .rail { border-right: none; border-left: 1px solid var(--border-base); }
+
+/* Composer: volle Breite des inneren Bereichs, unten buendig */
+#composer-wrap { padding: 0; }
+#composer {
+  max-width: none; margin: 0; border-radius: 0; border-left: none; border-right: none; border-bottom: none;
+  padding: 8px 12px 8px;
+}
+#composer textarea { padding-left: 2px; }
+
+/* Modul-Menue (oben) */
+#module-menu {
+  position: absolute; top: 44px; right: 12px; z-index: 40; min-width: 190px;
+  background: var(--bg-layer-1); border: 1px solid var(--border-base); border-radius: var(--radius);
+  box-shadow: var(--shadow-overlay); padding: 6px; display: none;
+}
+#module-menu.open { display: block; }
+#module-menu button {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px;
+  background: transparent; border: none; border-radius: var(--radius); color: var(--text-base);
+  cursor: pointer; text-align: left; font-size: 12.5px;
+}
+#module-menu button:hover { background: var(--overlay-hover); }
 .scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--bg-layer-2) transparent; }
 .scroll::-webkit-scrollbar { width: 8px; }
 .scroll::-webkit-scrollbar-thumb { background: var(--bg-layer-2); border-radius: 99px; }
@@ -229,11 +278,11 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 .approval-text span { color: var(--text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 .approval-actions { display: flex; gap: 6px; }
 
-#composer-wrap { padding: 0 20px 16px; }
+#composer-wrap { padding: 0; }
 #composer {
-  max-width: 860px; margin: 0 auto; background: var(--bg-layer-1);
-  border: 1px solid var(--border-base); border-radius: var(--radius-lg); box-shadow: var(--shadow-raised);
-  padding: 9px 10px 8px;
+  max-width: none; margin: 0; background: var(--bg-layer-1);
+  border: none; border-top: 1px solid var(--border-base); border-radius: 0; box-shadow: none;
+  padding: 8px 12px;
 }
 #composer textarea {
   background: transparent; border: none; padding: 2px 4px; resize: none; min-height: 22px; max-height: 30vh;

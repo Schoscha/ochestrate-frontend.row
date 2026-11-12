@@ -31,6 +31,7 @@
       <select id="model-select" aria-label="Modell"></select>
     </div>
     <div class="topbar-right">
+      <button class="btn ghost small" id="add-module" title="Modul hinzufuegen">+ Modul</button>
       <span class="pill" id="agent-pill" hidden>Agent</span>
       <span class="dot" id="conn-dot" title="Verbindung"></span>
       <button class="icon-btn" id="theme-toggle" aria-label="Farbschema wechseln" title="Hell / Dunkel">
@@ -45,16 +46,19 @@
     </div>
   </header>
 
-  <!-- Linke Spalte: Sessions -->
+  <!-- Linke Spalte: Modul-Rail + Sessions -->
   <aside id="left">
-    <div class="left-head">
-      <button class="btn primary" id="new-session">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Neue Session
-      </button>
-      <input type="search" id="session-search" placeholder="Sessions durchsuchen" aria-label="Sessions durchsuchen">
+    <nav id="left-rail" class="rail" aria-label="Module hinzufuegen"></nav>
+    <div id="left-content">
+      <div class="left-head">
+        <button class="btn primary" id="new-session">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Neue Session
+        </button>
+        <input type="search" id="session-search" placeholder="Sessions durchsuchen" aria-label="Sessions durchsuchen">
+      </div>
+      <nav id="session-list" class="scroll" aria-label="Sessions"></nav>
     </div>
-    <nav id="session-list" class="scroll" aria-label="Sessions"></nav>
   </aside>
 
   <!-- Mitte: Arbeitsflaeche (Canvas) + Chat -->
@@ -91,13 +95,17 @@
     </div>
   </main>
 
-  <!-- Dock: Icon-Leiste rechts (Wave-Muster) -->
-  <nav id="dock" aria-label="Werkzeuge">
+  <!-- Dock: Icon-Leiste rechts (Wave-Muster), einklappbar -->
+  <nav id="dock" class="rail" aria-label="Werkzeuge">
     <div class="dock-items" id="dock-items"></div>
-    <button class="dock-btn" id="dock-settings" title="Layout speichern" aria-label="Layout speichern">
+    <button class="rail-btn" id="dock-settings" title="Layout speichern" aria-label="Layout speichern">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
     </button>
+    <button class="rail-btn rail-toggle" id="dock-toggle" title="Leiste einklappen" aria-label="Leiste einklappen">›</button>
   </nav>
+
+  <!-- Modul-Menue oben -->
+  <div id="module-menu" role="menu"></div>
 
   <!-- Statusleiste -->
   <footer id="statusbar">

@@ -475,16 +475,34 @@ function renderTabs() {
 }
 
 function renderDock() {
+  const types = state.layout.types || [];
+  // Rail rechts
   const box = $('#dock-items');
   box.innerHTML = '';
-  for (const t of state.layout.types || []) {
-    const btn = el('button', 'dock-btn');
-    btn.title = t.title + ' hinzufügen';
-    btn.setAttribute('aria-label', t.title + ' hinzufügen');
-    btn.appendChild(iconSvg(t.icon || t.id));
-    btn.addEventListener('click', () => addWidget(t.id));
-    box.appendChild(btn);
+  for (const t of types) box.appendChild(railButton(t, 'dock'));
+  // Rail links
+  const leftBox = $('#left-rail');
+  leftBox.innerHTML = '';
+  for (const t of types) leftBox.appendChild(railButton(t, 'left'));
+  // Menue oben
+  const menu = $('#module-menu');
+  menu.innerHTML = '';
+  for (const t of types) {
+    const b = el('button');
+    b.appendChild(iconSvg(t.icon || t.id));
+    b.appendChild(el('span', null, t.title));
+    b.addEventListener('click', () => { menu.classList.remove('open'); addWidget(t.id); });
+    menu.appendChild(b);
   }
+}
+
+function railButton(type, side) {
+  const btn = el('button', 'rail-btn');
+  btn.title = type.title + ' hinzufügen';
+  btn.setAttribute('aria-label', type.title + ' hinzufügen');
+  btn.appendChild(iconSvg(type.icon || type.id));
+  btn.addEventListener('click', () => addWidget(type.id));
+  return btn;
 }
 
 async function addWidget(type) {
@@ -648,7 +666,11 @@ async function attachWidgetContent(w, body) {
 async function focusWidget(id) {
   const res = await post('/api/layout', { action: 'focus', id });
   state.layout = res;
-  renderCanvas();
+  // KEIN Neuaufbau: sonst wird der geklickte Knopf (z. B. X) aus dem DOM gerissen
+  // und der click-Event kommt nie an.
+  for (const w of document.querySelectorAll('.widget')) {
+    w.classList.toggle('focused', w.dataset.id === id);
+  }
 }
 
 /* ---------------- Verschieben und Skalieren (Magnet) ---------------- */
@@ -840,8 +862,18 @@ function setup() {
   $('#approval-accept').addEventListener('click', () => answerApproval('accept'));
   $('#approval-decline').addEventListener('click', () => answerApproval('decline'));
 
-  $('#toggle-left').addEventListener('click', () => $('#app').classList.toggle('left-open'));
-  $('#toggle-right').addEventListener('click', () => $('#app').classList.toggle('right-open'));
+  $('#toggle-left').addEventListener('click', () => $('#left').classList.toggle('collapsed'));
+  $('#toggle-right').addEventListener('click', () => $('#dock').classList.toggle('collapsed'));
+  $('#dock-toggle').addEventListener('click', () => $('#dock').classList.toggle('collapsed'));
+  $('#add-module').addEventListener('click', (e) => {
+    e.stopPropagation();
+    $('#module-menu').classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#module-menu') && !e.target.closest('#add-module')) {
+      $('#module-menu').classList.remove('open');
+    }
+  });
   $('#theme-toggle').addEventListener('click', () => {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
     document.documentElement.dataset.theme = next;
