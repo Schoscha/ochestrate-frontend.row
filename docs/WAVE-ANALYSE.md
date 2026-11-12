@@ -65,3 +65,24 @@ Stand: 2026-11-12 · Grundlage: Doku docs.waveterm.dev, Video `docs/sascha_daten
 - Soll der Codex-Chat selbst auch ein Widget in dieser Fläche sein (Chat links, Terminals rechts)?
 - Tab-Namen und Anzahl (`Übersicht`, `T1`, ...) sind frei konfigurierbar - Vorschlag: eine Leiste je
   Projekt (`Central-Station`, `Codex-Web`).
+
+## 7. Konkrete Wave-Regeln (aus docs/docs/widgets.mdx, Doku liegt in docs/wave/)
+
+- Widget hinzufuegen: ueber die Icon-Leiste rechts. Schliessen: X im Kopf. Fokus: Klick, gruener Rahmen,
+  Wechsel mit Strg+Shift+Pfeil. Vergroessern ("magnify"): Kopf-Icon oder Cmd+M.
+- **Verschieben:** Header ziehen. Vorschau wird gruen beim gueltigen Ziel. Halbes Fenster = dazwischen
+  platzieren, ganzes Fenster = Plaetze tauschen. Beim Loslassen raeumt der Rest neu auf.
+- **Groesse aendern:** die gruene Trennlinie zwischen zwei Widgets ziehen (Cursor wechselt zu
+  arrows-left-right / arrows-up-down). Das ist der Kern des "Magnet"-Gefuehls.
+- Widget-Typen: Term, Preview (Verzeichnis wie Explorer, Markdown gerendert, Bilder/Videos), Codeedit
+  (Monaco, Cmd+E Edit, Cmd+S Speichern), Process Viewer (live PID/CPU/RAM, sortierbar, Signale, Cmd+F Filter,
+  Leertaste pausiert).
+- wsh view [pfad] oeffnet aus dem Terminal heraus ein Preview-Widget.
+
+### Konsequenz fuer uns (billiger als Wave)
+- Layout als Rects in data/layout.json (x, y, w, h in Prozent) statt Raster.
+- Drag auf dem Kopf verschiebt; Drag auf der Kante zwischen zwei Widgets veraendert die Groesse.
+- Fokus mit gruenem Rahmen, Magnify (volle Flaeche), Tabs fuer Layouts.
+- Widget-Typen aus unseren Endpunkten: term (vorhanden), files (/api/fs), process (tasklist ueber unsere
+  Terminal-Bloecke), web (iframe Station), wissen/rowboat (MCP), provider (/api/providers).
+- Unser Plugin-System deckt "alles einfuegen" ab: ein Plugin = Werkzeuge + optional ein Widget-Typ.
