@@ -947,6 +947,15 @@ async function loadWerkzeuge() {
 
 async function init() {
   setup();
+  // Schmale Fenster: beide Rails eingeklappt starten -> volle Breite fuer den Chat
+  const autoCollapse = () => {
+    if (window.innerWidth < 860) {
+      $('#left').classList.add('collapsed');
+      $('#dock').classList.add('collapsed');
+    }
+  };
+  autoCollapse();
+  window.addEventListener('resize', autoCollapse);
   state.info = await api('/api/info');
   $('#st-version').textContent = 'v' + state.info.version;
   $('#agent-toggle').checked = state.agent;
