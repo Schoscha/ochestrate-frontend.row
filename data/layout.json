@@ -1,13 +1,70 @@
 {
-  "panels": [
-    "terminal",
-    "wissen",
-    "werkzeuge",
-    "provider",
-    "rowboat"
+  "widgets": [
+    {
+      "id": "w-chat",
+      "type": "chat",
+      "title": "Chat",
+      "x": 0,
+      "y": 0,
+      "w": 38,
+      "h": 100,
+      "focus": false,
+      "state": {}
+    },
+    {
+      "id": "w-term",
+      "type": "term",
+      "title": "Terminal",
+      "x": 45,
+      "y": 5,
+      "w": 55,
+      "h": 90,
+      "focus": true,
+      "state": {
+        "prev": {
+          "x": 45,
+          "y": 5,
+          "w": 55,
+          "h": 90
+        },
+        "maximized": false,
+        "term": "t1"
+      }
+    },
+    {
+      "id": "w-files-g8zr3",
+      "type": "files",
+      "title": "Dateien",
+      "x": 10,
+      "y": 10,
+      "w": 40,
+      "h": 50,
+      "focus": false,
+      "state": {}
+    },
+    {
+      "id": "w-process-g8zv4",
+      "type": "process",
+      "title": "Prozesse",
+      "x": 10,
+      "y": 10,
+      "w": 40,
+      "h": 50,
+      "focus": false,
+      "state": {}
+    },
+    {
+      "id": "w-web-g8zy5",
+      "type": "web",
+      "title": "Web",
+      "x": 10,
+      "y": 10,
+      "w": 40,
+      "h": 50,
+      "focus": false,
+      "state": {}
+    }
   ],
-  "active": "wissen",
-  "grid": "2x2",
-  "rightOpen": true,
-  "leftOpen": true
+  "preset": "T1",
+  "active": "w-term"
 }

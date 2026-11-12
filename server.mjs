@@ -222,7 +222,7 @@ providerRegistry.ensureKeys().catch(() => {});
 const pluginRegistry = new PluginRegistry(PLUGINS_DIR);
 const sessionStore = new SessionStore(join(DATA_DIR, 'sessions.json'));
 const rowboat = new Rowboat({ memory });
-const layout = new Layout(join(DATA_DIR, 'layout.json'));
+const layout = new Layout(join(DATA_DIR, 'layout.json'), join(DATA_DIR, 'layouts'));
 const terminals = new TerminalManager({
   broadcast: event => broadcast(event),
   cwd: homedir()
@@ -647,21 +647,45 @@ const httpServer = createServer(async (req, res) => {
       return json(res, 404, { error: 'Unbekannte Terminal-Aktion: ' + sub });
     }
 
-    /* ---------- Layout der Arbeitsflaeche ---------- */
+    /* ---------- Layout der Arbeitsflaeche (Wave-Modell: Widgets als Rects) ---------- */
     if (path === '/api/layout' && req.method === 'GET') {
       return json(res, 200, layout.get());
     }
     if (path === '/api/layout' && req.method === 'POST') {
       const payload = await readBody(req);
-      const state = layout.set(payload);
+      const state = layout.apply(payload);
       broadcast({ type: 'layout', layout: state });
       return json(res, 200, state);
     }
-    if (path === '/api/layout/toggle' && req.method === 'POST') {
+    if (path === '/api/layout/preset' && req.method === 'POST') {
       const payload = await readBody(req);
-      const state = layout.toggle(payload.panel);
-      broadcast({ type: 'layout', layout: state });
-      return json(res, 200, state);
+      let out;
+      if (payload.action === 'load') out = layout.loadPreset(payload.name);
+      else if (payload.action === 'delete') out = layout.deletePreset(payload.name);
+      else out = layout.savePreset(payload.name);
+      if (out.layout) broadcast({ type: 'layout', layout: out.layout });
+      return json(res, 200, out);
+    }
+
+    /* ---------- Prozesse (Widget process) ---------- */
+    if (path === '/api/process' && req.method === 'GET') {
+      try {
+        const { execFile } = await import('child_process');
+        const out = await new Promise(resolve => {
+          execFile('powershell.exe', ['-NoProfile', '-Command',
+            "Get-Process | Sort-Object CPU -Descending | Select-Object -First 60 Id,ProcessName,CPU,@{n='MB';e={[math]::Round($_.WorkingSet64/1MB,1)}} | ConvertTo-Json -Compress"
+          ], { timeout: 20000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => resolve(stdout || '[]'));
+        });
+        let parsed = [];
+        try { parsed = JSON.parse(out); } catch {}
+        if (!Array.isArray(parsed)) parsed = parsed ? [parsed] : [];
+        const processes = parsed.map(p => ({
+          pid: p.Id, name: p.ProcessName, cpu: p.CPU ?? null, mb: p.MB ?? null
+        }));
+        return json(res, 200, { processes, count: processes.length });
+      } catch (e) {
+        return json(res, 200, { processes: [], count: 0, error: e.message });
+      }
     }
 
     /* ---------- Freigaben ---------- */

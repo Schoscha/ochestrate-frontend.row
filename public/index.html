@@ -7,7 +7,6 @@
 <title>Codex Web UI</title>
 <link rel="stylesheet" href="/style.css">
 <script>
-  // Farbschema vor dem ersten Malen setzen (kein Flackern)
   (function () {
     var t = localStorage.getItem('cx.theme');
     if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
@@ -40,7 +39,7 @@
           <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path>
         </svg>
       </button>
-      <button class="icon-btn" id="toggle-right" aria-label="Werkzeuge ein-/ausblenden" title="Werkzeuge (W)">
+      <button class="icon-btn" id="toggle-right" aria-label="Dock ein-/ausblenden" title="Werkzeuge (W)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18"/></svg>
       </button>
     </div>
@@ -58,9 +57,11 @@
     <nav id="session-list" class="scroll" aria-label="Sessions"></nav>
   </aside>
 
-  <!-- Mitte: Chat -->
+  <!-- Mitte: Arbeitsflaeche (Canvas) + Chat -->
   <main id="center">
-    <div id="timeline" class="scroll" role="log" aria-live="polite"></div>
+    <div id="layout-tabs" role="tablist" aria-label="Layouts"></div>
+    <div id="canvas"></div>
+    <div id="timeline" class="scroll"></div>
 
     <div id="approval-bar" hidden>
       <div class="approval-text">
@@ -89,91 +90,13 @@
     </div>
   </main>
 
-  <!-- Rechte Spalte: Werkzeuge -->
-  <aside id="right">
-    <div class="tabs" role="tablist">
-      <button class="tab active" data-tab="wissen" role="tab">Wissen</button>
-      <button class="tab" data-tab="rowboat" role="tab">Rowboat</button>
-      <button class="tab" data-tab="werkzeuge" role="tab">Werkzeuge</button>
-      <button class="tab" data-tab="provider" role="tab">Provider</button>
-      <button class="tab" data-tab="terminal" role="tab">Terminal</button>
-    </div>
-
-    <section class="tabpanel active" data-panel="wissen">
-      <div class="panel-head">
-        <input type="search" id="wissen-search" placeholder="Wissen suchen (Vault, Gedaechtnis, Rowboat)" aria-label="Wissen suchen">
-      </div>
-      <div id="wissen-results" class="scroll"></div>
-    </section>
-
-    <section class="tabpanel" data-panel="rowboat">
-      <div class="panel-head">
-        <span class="panel-title">Rowboat</span>
-        <button class="btn ghost small" id="rowboat-reload">Neu laden</button>
-      </div>
-      <div id="rowboat-body" class="scroll">
-        <div class="cards" id="rowboat-cards"></div>
-        <details class="box">
-          <summary>Briefing schreiben</summary>
-          <input type="text" id="briefing-title" placeholder="Titel">
-          <textarea id="briefing-text" rows="4" placeholder="Was soll das Briefing enthalten?"></textarea>
-          <button class="btn primary small" id="briefing-save">Briefing speichern</button>
-          <div id="briefing-result" class="hint"></div>
-        </details>
-        <details class="box">
-          <summary>Task starten</summary>
-          <select id="task-agent">
-            <option value="codex">Codex</option>
-            <option value="claude">Claude</option>
-            <option value="opencode">OpenCode</option>
-          </select>
-          <textarea id="task-prompt" rows="4" placeholder="Auftrag an den Agenten"></textarea>
-          <button class="btn primary small" id="task-start">Task starten</button>
-          <div id="task-result" class="hint"></div>
-        </details>
-        <div id="rowboat-lists"></div>
-      </div>
-    </section>
-
-    <section class="tabpanel" data-panel="werkzeuge">
-      <div class="panel-head">
-        <span class="panel-title">Werkzeuge</span>
-        <button class="btn ghost small" id="plugins-reload">Plugins neu laden</button>
-      </div>
-      <div id="werkzeuge-body" class="scroll">
-        <div id="plugins-list"></div>
-        <div id="skills-list"></div>
-        <div id="mcp-list"></div>
-        <div id="files-box">
-          <div class="box">
-            <strong>Dateien</strong>
-            <div id="fs-path" class="hint mono"></div>
-            <div id="fs-list"></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="tabpanel" data-panel="provider">
-      <div class="panel-head"><span class="panel-title">Provider</span></div>
-      <div id="provider-body" class="scroll"></div>
-    </section>
-
-    <section class="tabpanel" data-panel="terminal">
-      <div class="panel-head">
-        <span class="panel-title">Terminals</span>
-        <select id="grid-select" aria-label="Aufteilung">
-          <option value="1x1">1 Feld</option>
-          <option value="2x2">2x2 Felder</option>
-          <option value="2x1">2x1 Felder</option>
-          <option value="1x2">1x2 Felder</option>
-        </select>
-        <button class="btn ghost small" id="term-new">Neu</button>
-      </div>
-      <div class="leisten" id="leisten" aria-label="Leisten ein- und ausschalten"></div>
-      <div id="term-grid" class="term-grid"></div>
-    </section>
-  </aside>
+  <!-- Dock: Icon-Leiste rechts (Wave-Muster) -->
+  <nav id="dock" aria-label="Werkzeuge">
+    <div class="dock-items" id="dock-items"></div>
+    <button class="dock-btn" id="dock-settings" title="Layout speichern" aria-label="Layout speichern">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+    </button>
+  </nav>
 
   <!-- Statusleiste -->
   <footer id="statusbar">
@@ -185,6 +108,86 @@
     <span id="st-version"></span>
   </footer>
 </div>
+
+<!-- Aufbewahrung fuer die Panel-Inhalte (kommen in die Widgets) -->
+<div id="panel-store" hidden>
+  <section class="tabpanel" data-panel="wissen">
+    <div class="panel-head">
+      <input type="search" id="wissen-search" placeholder="Wissen suchen (Vault, Gedaechtnis, Rowboat)" aria-label="Wissen suchen">
+    </div>
+    <div id="wissen-results" class="scroll"></div>
+  </section>
+
+  <section class="tabpanel" data-panel="rowboat">
+    <div class="panel-head">
+      <span class="panel-title">Rowboat</span>
+      <button class="btn ghost small" id="rowboat-reload">Neu laden</button>
+    </div>
+    <div id="rowboat-body" class="scroll">
+      <div class="cards" id="rowboat-cards"></div>
+      <details class="box">
+        <summary>Briefing schreiben</summary>
+        <input type="text" id="briefing-title" placeholder="Titel">
+        <textarea id="briefing-text" rows="4" placeholder="Was soll das Briefing enthalten?"></textarea>
+        <button class="btn primary small" id="briefing-save">Briefing speichern</button>
+        <div id="briefing-result" class="hint"></div>
+      </details>
+      <details class="box">
+        <summary>Task starten</summary>
+        <select id="task-agent">
+          <option value="codex">Codex</option>
+          <option value="claude">Claude</option>
+          <option value="opencode">OpenCode</option>
+        </select>
+        <textarea id="task-prompt" rows="4" placeholder="Auftrag an den Agenten"></textarea>
+        <button class="btn primary small" id="task-start">Task starten</button>
+        <div id="task-result" class="hint"></div>
+      </details>
+      <div id="rowboat-lists"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-panel="werkzeuge">
+    <div class="panel-head">
+      <span class="panel-title">Werkzeuge</span>
+      <button class="btn ghost small" id="plugins-reload">Plugins neu laden</button>
+    </div>
+    <div id="werkzeuge-body" class="scroll">
+      <div id="plugins-list"></div>
+      <div id="skills-list"></div>
+      <div id="mcp-list"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-panel="provider">
+    <div class="panel-head"><span class="panel-title">Provider</span></div>
+    <div id="provider-body" class="scroll"></div>
+  </section>
+
+  <section class="tabpanel" data-panel="files">
+    <div class="panel-head"><span class="panel-title">Dateien</span></div>
+    <div id="files-body" class="scroll">
+      <div id="fs-path" class="hint mono"></div>
+      <div id="fs-list"></div>
+      <div id="fs-preview" class="mono"></div>
+    </div>
+  </section>
+
+  <section class="tabpanel" data-panel="process">
+    <div class="panel-head"><span class="panel-title">Prozesse</span><button class="btn ghost small" id="process-reload">Neu laden</button></div>
+    <div id="process-body" class="scroll"><div id="process-list"></div></div>
+  </section>
+
+  <section class="tabpanel" data-panel="web">
+    <div class="panel-head">
+      <span class="panel-title">Web</span>
+      <input type="text" id="web-url" class="mono" placeholder="https://…" value="https://central.sascha-kruss.de/main/">
+      <button class="btn ghost small" id="web-go">Laden</button>
+    </div>
+    <div id="web-body" class="scroll"><iframe id="web-frame" title="Web" sandbox="allow-scripts allow-same-origin allow-forms"></iframe></div>
+  </section>
+</div>
+
 <script src="/app.js" type="module"></script>
 </body>
 </html>

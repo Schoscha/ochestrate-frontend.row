@@ -100,9 +100,9 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
    ============================================================= */
 #app {
   display: grid; height: 100vh;
-  grid-template-columns: var(--left-w) minmax(0, 1fr) var(--right-w);
+  grid-template-columns: var(--left-w) minmax(0, 1fr) 46px;
   grid-template-rows: var(--top-h) minmax(0, 1fr) var(--status-h);
-  grid-template-areas: "top top top" "left center right" "status status status";
+  grid-template-areas: "top top top" "left center dock" "status status status";
   background: var(--bg-deep);
 }
 .scroll { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--bg-layer-2) transparent; }
@@ -285,6 +285,62 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 .list-head { margin: 12px 0 5px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
 .kv { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 12.5px; border-bottom: 1px solid var(--border-muted); }
 .kv span { color: var(--text-faint); }
+
+/* =============================================================
+   Arbeitsflaeche: Canvas mit Widgets + Dock (Wave-Modell)
+   ============================================================= */
+#layout-tabs { display: flex; gap: 4px; padding: 6px 10px 0; background: var(--bg-deep); }
+#layout-tabs .lt {
+  padding: 4px 11px; border-radius: var(--radius) var(--radius) 0 0; font-size: 12px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-bottom: none; color: var(--text-muted);
+}
+#layout-tabs .lt.active { background: var(--bg-base); border-color: var(--border-base); color: var(--text-base); font-weight: 600; }
+#layout-tabs .lt.add { color: var(--accent-text); }
+
+#canvas { position: relative; flex: 1; min-height: 0; overflow: hidden; background: var(--bg-deep); }
+.widget {
+  position: absolute; display: flex; flex-direction: column; min-width: 120px; min-height: 90px;
+  background: var(--bg-base); border: 1px solid var(--border-base); border-radius: var(--radius-lg);
+  overflow: hidden; box-shadow: var(--shadow-raised);
+}
+.widget.focused { border-color: var(--green-500); box-shadow: 0 0 0 1px var(--green-500); }
+.w-head {
+  display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 8px; cursor: grab;
+  background: var(--bg-layer-1); border-bottom: 1px solid var(--border-muted); user-select: none;
+}
+.w-head:active { cursor: grabbing; }
+.w-head .w-title { font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w-head .spacer { flex: 1; }
+.w-head .icon-btn { width: 22px; height: 22px; }
+.w-head .icon-btn svg { width: 13px; height: 13px; }
+.w-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.w-body > .tabpanel { display: flex; flex-direction: column; height: 100%; }
+.w-resize { position: absolute; z-index: 5; }
+.w-resize.e { right: -3px; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
+.w-resize.s { left: 0; right: 0; bottom: -3px; height: 7px; cursor: ns-resize; }
+.w-resize.se { right: -3px; bottom: -3px; width: 13px; height: 13px; cursor: nwse-resize; }
+.drag-ghost { position: absolute; border: 2px solid var(--green-500); border-radius: var(--radius-lg); pointer-events: none; z-index: 9; background: rgba(107,213,134,.08); }
+
+/* Dock-Leiste rechts */
+#dock {
+  grid-area: dock; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0;
+  background: var(--bg-base); border-left: 1px solid var(--border-base);
+}
+.dock-items { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.dock-btn {
+  display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--radius);
+  background: transparent; border: 1px solid transparent; color: var(--text-muted); cursor: pointer;
+}
+.dock-btn:hover { background: var(--overlay-hover); color: var(--text-base); }
+.dock-btn.active { background: rgba(59,92,246,.16); border-color: rgba(59,92,246,.45); color: var(--accent-text); }
+#dock .dock-btn:last-child { margin-top: auto; }
+
+/* Prozess-Tabelle */
+#process-list table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#process-list td, #process-list th { padding: 3px 6px; text-align: left; border-bottom: 1px solid var(--border-muted); }
+#process-list th { color: var(--text-faint); font-weight: 600; position: sticky; top: 0; background: var(--bg-base); }
+#web-frame { width: 100%; height: 100%; border: 0; background: #fff; }
+#fs-preview { margin-top: 8px; padding: 7px; background: var(--bg-deep); border-radius: var(--radius); white-space: pre-wrap; max-height: 40vh; overflow: auto; }
 
 /* =============================================================
    Terminal-Bloecke (1x1 / 2x2 / 2x1 / 1x2)
