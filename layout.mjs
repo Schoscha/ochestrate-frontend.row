@@ -122,7 +122,12 @@ export class Layout {
       }
       case 'resize': {
         const w = widgets.find(x => x.id === action.id);
-        if (w) { w.w = action.w; w.h = action.h; }
+        if (w) {
+          if (typeof action.w === 'number') w.w = action.w;
+          if (typeof action.h === 'number') w.h = action.h;
+          if (typeof action.x === 'number') w.x = action.x;
+          if (typeof action.y === 'number') w.y = action.y;
+        }
         break;
       }
       case 'focus': {

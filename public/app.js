@@ -480,10 +480,11 @@ function renderDock() {
 
 async function addWidget(type) {
   const count = (state.layout.widgets || []).length;
+  const step = count % 6;
   const res = await post('/api/layout', {
     action: 'add', type,
-    x: Math.min(70, 6 + (count % 4) * 8),
-    y: Math.min(70, 6 + (count % 3) * 8),
+    x: Math.min(64, 4 + step * 11),
+    y: Math.min(62, 4 + (step % 3) * 13),
     w: type === 'term' ? 45 : 38,
     h: type === 'term' ? 55 : 45
   });
@@ -497,7 +498,9 @@ function renderCanvas() {
   detachAll();
   canvas.innerHTML = '';
   for (const w of state.layout.widgets || []) {
-    canvas.appendChild(buildWidget(w));
+    const box = buildWidget(w);
+    canvas.appendChild(box);          // erst einhaengen, dann Inhalt setzen
+    attachWidgetContent(w, box.querySelector('.w-body'));
   }
   canvas.scrollTop = scrollY;
 }
@@ -505,9 +508,10 @@ function renderCanvas() {
 /** Panel und Timeline zurueck in die Ablage, bevor der Canvas neu gebaut wird. */
 function detachAll() {
   const store = $('#panel-store');
-  document.querySelectorAll('#canvas .tabpanel').forEach(p => {
+  // alle Panel-Sektionen zurueck, egal wo sie haengen
+  document.querySelectorAll('[data-panel]').forEach(p => {
     p.style.display = 'none';
-    store.appendChild(p);
+    if (p.parentElement !== store) store.appendChild(p);
   });
   const timeline = $('#timeline');
   if (timeline && timeline.parentElement !== store) {
@@ -595,8 +599,11 @@ function widgetMenu(w, box) {
 }
 
 async function attachWidgetContent(w, body) {
+  // wenn das Widget schon wieder aus dem Canvas gerissen wurde: nichts anhaengen
+  if (!body.isConnected) return;
   if (w.type === 'chat') {
     const timeline = $('#timeline');
+    if (!timeline) return;
     timeline.style.display = 'block';
     body.appendChild(timeline);
     return;
@@ -610,6 +617,7 @@ async function attachWidgetContent(w, body) {
     if (w.type === 'rowboat') await loadRowboat();
     if (w.type === 'provider') renderProviders();
     if (w.type === 'wissen') await searchWissen();
+    if (w.type === 'web') { const f = $('#web-frame'); if (f && !f.src) f.src = ($('#web-url')?.value) || ''; }
     return;
   }
   if (w.type === 'term') {
@@ -640,14 +648,16 @@ function startDrag(e, w, box) {
   e.preventDefault();
   const canvas = $('#canvas');
   const rect = canvas.getBoundingClientRect();
+  const width = rect.width || canvas.parentElement.getBoundingClientRect().width || window.innerWidth || 1;
+  const height = rect.height || canvas.parentElement.getBoundingClientRect().height || window.innerHeight || 1;
   const startX = e.clientX, startY = e.clientY;
   const origX = w.x, origY = w.y;
   const ghost = el('div', 'drag-ghost');
   canvas.appendChild(ghost);
 
   const onMove = (ev) => {
-    const dx = ((ev.clientX - startX) / rect.width) * 100;
-    const dy = ((ev.clientY - startY) / rect.height) * 100;
+    const dx = ((ev.clientX - startX) / width) * 100;
+    const dy = ((ev.clientY - startY) / height) * 100;
     const nx = Math.max(0, Math.min(100 - w.w, origX + dx));
     const ny = Math.max(0, Math.min(100 - w.h, origY + dy));
     w.x = nx; w.y = ny;
@@ -674,44 +684,63 @@ function startResize(e, w, box, dir) {
   e.stopPropagation();
   const canvas = $('#canvas');
   const rect = canvas.getBoundingClientRect();
+  const width = rect.width || canvas.parentElement.getBoundingClientRect().width || window.innerWidth || 1;
+  const height = rect.height || canvas.parentElement.getBoundingClientRect().height || window.innerHeight || 1;
   const startX = e.clientX, startY = e.clientY;
   const orig = { x: w.x, y: w.y, w: w.w, h: w.h };
+  const others = (state.layout.widgets || []).filter(x => x.id !== w.id);
 
   const onMove = (ev) => {
-    const dx = ((ev.clientX - startX) / rect.width) * 100;
-    const dy = ((ev.clientY - startY) / rect.height) * 100;
+    const dx = ((ev.clientX - startX) / width) * 100;
+    const dy = ((ev.clientY - startY) / height) * 100;
     let nw = orig.w, nh = orig.h;
     if (dir.includes('e')) nw = Math.max(10, Math.min(100 - orig.x, orig.w + dx));
     if (dir.includes('s')) nh = Math.max(8, Math.min(100 - orig.y, orig.h + dy));
-    w.w = nw; w.h = nh;
+    w.w = nw; w.h = nh; w.__dirty = true;
     box.style.width = nw + '%';
     box.style.height = nh + '%';
     // Magnet: Nachbarn, die ueber die Kante ragen, werden mitgeschoben
-    const others = (state.layout.widgets || []).filter(x => x.id !== w.id);
     for (const o of others) {
       const overlapsV = o.y < orig.y + nh && o.y + o.h > orig.y;
       if (dir.includes('e') && overlapsV && o.x + o.w > orig.x + nw) {
-        const delta = (o.x + o.w) - (orig.x + nw);
-        o.w = Math.max(8, o.w - delta);
+        const right = o.x + o.w;
+        const edge = orig.x + nw;
+        if (o.x < edge) { o.x = edge; o.w = Math.max(8, right - edge); }
+        else o.w = Math.max(8, o.w - (right - edge));
       }
       if (dir.includes('s') && o.x < orig.x + nw && o.x + o.w > orig.x && o.y + o.h > orig.y + nh) {
-        const delta = (o.y + o.h) - (orig.y + nh);
-        o.h = Math.max(8, o.h - delta);
+        const bottom = o.y + o.h;
+        const edge = orig.y + nh;
+        if (o.y < edge) { o.y = edge; o.h = Math.max(8, bottom - edge); }
+        else o.h = Math.max(8, o.h - (bottom - edge));
       }
     }
     for (const o of others) {
       const node = document.querySelector(`.widget[data-id="${o.id}"]`);
-      if (node) { node.style.width = o.w + '%'; node.style.height = o.h + '%'; }
+      if (node) {
+        node.style.left = o.x + '%';
+        node.style.top = o.y + '%';
+        node.style.width = o.w + '%';
+        node.style.height = o.h + '%';
+      }
+      o.__dirty = true;
     }
   };
   const onUp = async () => {
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup', onUp);
-    const res = await post('/api/layout', {
-      action: 'set',
-      widgets: (state.layout.widgets || []).map(x => ({ ...x, x: Math.round(x.x), y: Math.round(x.y), w: Math.round(x.w), h: Math.round(x.h) }))
-    });
-    state.layout = res;
+    // Einzelmeldungen statt Gesamt-Layout: ein SSE-Re-Render waehrend des Ziehens
+    // darf die Aenderung nicht verwerfen
+    const changed = [w, ...others].filter(o => o.__dirty);
+    for (const o of changed) {
+      await post('/api/layout', {
+        action: 'resize', id: o.id,
+        w: Math.round(o.w), h: Math.round(o.h),
+        x: Math.round(o.x), y: Math.round(o.y)
+      });
+    }
+    if (!changed.length) await post('/api/layout', { action: 'resize', id: w.id, w: Math.round(w.w), h: Math.round(w.h) });
+    state.layout = await api('/api/layout');
     renderCanvas();
   };
   document.addEventListener('pointermove', onMove);
