@@ -39,8 +39,8 @@
       "id": "w-wissen-u9sx15",
       "type": "wissen",
       "title": "Wissen",
-      "x": 5,
-      "y": 5,
+      "x": 0,
+      "y": 50,
       "w": 45,
       "h": 50,
       "focus": false,
@@ -50,14 +50,69 @@
       "id": "w-rowboat-uh5b16",
       "type": "rowboat",
       "title": "Rowboat",
-      "x": 5,
-      "y": 5,
+      "x": 0,
+      "y": 55,
       "w": 45,
+      "h": 45,
+      "focus": false,
+      "state": {}
+    },
+    {
+      "id": "w-chat-zyro17",
+      "type": "chat",
+      "title": "Chat",
+      "x": 59,
+      "y": 30,
+      "w": 38,
+      "h": 45,
+      "focus": false,
+      "state": {}
+    },
+    {
+      "id": "w-files-0mqc18",
+      "type": "files",
+      "title": "Dateien",
+      "x": 4,
+      "y": 4,
+      "w": 38,
+      "h": 45,
+      "focus": false,
+      "state": {}
+    },
+    {
+      "id": "w-process-0o6b19",
+      "type": "process",
+      "title": "Prozesse",
+      "x": 15,
+      "y": 17,
+      "w": 38,
+      "h": 45,
+      "focus": false,
+      "state": {}
+    },
+    {
+      "id": "w-web-0pyx20",
+      "type": "web",
+      "title": "Web",
+      "x": 26,
+      "y": 30,
+      "w": 38,
+      "h": 45,
+      "focus": false,
+      "state": {}
+    },
+    {
+      "id": "w-web-0qop21",
+      "type": "web",
+      "title": "Web",
+      "x": 37,
+      "y": 4,
+      "w": 38,
       "h": 45,
       "focus": true,
       "state": {}
     }
   ],
   "preset": "T1",
-  "active": "w-rowboat-uh5b16"
+  "active": "w-web-0qop21"
 }

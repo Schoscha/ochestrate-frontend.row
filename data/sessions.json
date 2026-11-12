@@ -176,5 +176,26 @@
         "at": 1794508175
       }
     ]
+  },
+  {
+    "id": "s-mwdx2vo9-mf6en",
+    "name": "Antworte mit genau einem Wort: ok",
+    "model": null,
+    "provider": "free",
+    "createdAt": 1794510266,
+    "updatedAt": 1794510266,
+    "archived": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Antworte mit genau einem Wort: ok",
+        "at": 1794510266
+      },
+      {
+        "role": "assistant",
+        "content": "ok",
+        "at": 1794510266
+      }
+    ]
   }
 ]

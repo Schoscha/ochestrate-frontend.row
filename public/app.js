@@ -370,6 +370,15 @@ function addTerminalPane(bodyEl, pane) {
   const head = el('div', 'term-head');
   head.appendChild(el('span', 'name', pane.name || 'Shell'));
   head.appendChild(el('span', 'spacer'));
+  const clearBtn = el('button', 'icon-btn', '⌫');
+  clearBtn.title = 'Ausgabe leeren';
+  clearBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await post('/api/terminals/' + pane.id + '/clear', {});
+    const out = box.querySelector('.term-out');
+    if (out) out.textContent = '';
+  });
+  head.appendChild(clearBtn);
   const closeBtn = el('button', 'icon-btn', '×');
   closeBtn.title = 'Terminal schliessen';
   closeBtn.addEventListener('click', async (e) => {
@@ -800,6 +809,14 @@ function setup() {
   $('#new-session').addEventListener('click', () => {
     state.session = null;
     $('#timeline').innerHTML = '';
+    $('#prompt').focus();
+  });
+
+  $('#clear-chat').addEventListener('click', () => {
+    $('#timeline').innerHTML = '';
+    state.session = null;
+    state.pendingApproval = null;
+    $('#approval-bar').hidden = true;
     $('#prompt').focus();
   });
 
