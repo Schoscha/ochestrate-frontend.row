@@ -1,249 +1,549 @@
-document.addEventListener('DOMContentLoaded', () => {
-  const statusEl = document.getElementById('status');
-  const threadsContainer = document.getElementById('threads-list');
-  const chatMessages = document.getElementById('chat-messages');
-  const promptEl = document.getElementById('prompt');
-  const sendBtn = document.getElementById('send-btn');
-  const interruptBtn = document.getElementById('interrupt-btn');
-  const wissenSearch = document.getElementById('wissen-search');
-  const wissenResults = document.getElementById('wissen-results');
+// Codex Web UI - Frontend (OpenCode-Look, ohne Build, ohne Anbieterbindung)
 
-  let sseClient = null;
-  let currentThread = null;
-  let isConnected = false;
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-  // Status indicator
-  const updateStatus = (status, connected) => {
-    statusEl.textContent = status;
-    statusEl.className = '';
-    isConnected = connected;
-    if (connected) {
-      statusEl.classList.add('connected');
-    } else {
-      statusEl.classList.add('disconnected');
-    }
-    sendBtn.disabled = !connected;
-    if (connected && currentThread) {
-      interruptBtn.classList.add('visible');
-      interruptBtn.style.display = 'inline';
-    } else {
-      interruptBtn.classList.remove('visible');
-      interruptBtn.style.display = 'none';
-    }
+const state = {
+  info: null,
+  providers: [],
+  provider: localStorage.getItem('cx.provider') || 'free',
+  model: localStorage.getItem('cx.model') || null,
+  models: [],
+  sessions: [],
+  session: null,
+  agent: localStorage.getItem('cx.agent') === '1',
+  pendingApproval: null,
+  busy: false
+};
+
+/* ---------------- Hilfsfunktionen ---------------- */
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function fmtDate(seconds) {
+  if (!seconds) return '';
+  const d = new Date(seconds * 1000);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+}
+
+function fmtGroup(seconds) {
+  const d = new Date(seconds * 1000);
+  const now = new Date();
+  const days = Math.floor((now - d) / 86400000);
+  if (days === 0) return 'Heute';
+  if (days === 1) return 'Gestern';
+  if (days < 7) return 'Diese Woche';
+  if (days < 30) return 'Dieser Monat';
+  return d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return { error: text.slice(0, 200) }; }
+}
+
+function post(path, body) {
+  return api(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {})
+  });
+}
+
+/* ---------------- Chat ---------------- */
+function addMessage(role, text, extra) {
+  const wrap = el('div', 'msg ' + role);
+  wrap.appendChild(el('div', 'msg-role', role === 'user' ? 'Du' : role === 'error' ? 'Fehler' : 'Agent'));
+  const body = el('div', 'msg-body', text || '');
+  wrap.appendChild(body);
+  if (extra) wrap.appendChild(extra);
+  $('#timeline').appendChild(wrap);
+  $('#timeline').scrollTop = $('#timeline').scrollHeight;
+  return wrap;
+}
+
+function addToolChip(tool, ok) {
+  const chip = el('div', 'tool-chip ' + (ok === true ? 'ok' : ok === false ? 'err' : ''));
+  if (ok === undefined) chip.appendChild(el('span', 'spin'));
+  chip.appendChild(el('span', null, tool));
+  $('#timeline').appendChild(chip);
+  $('#timeline').scrollTop = $('#timeline').scrollHeight;
+  return chip;
+}
+
+async function send() {
+  const prompt = $('#prompt').value.trim();
+  if (!prompt || state.busy) return;
+  state.busy = true;
+  $('#send-btn').disabled = true;
+  $('#prompt').value = '';
+  autoGrow();
+
+  addMessage('user', prompt);
+  const answerBox = addMessage('agent', '');
+  let answer = '';
+  const tools = new Map();
+
+  const body = {
+    provider: state.provider,
+    model: state.model,
+    prompt,
+    agent: state.agent,
+    stream: true
   };
 
-  // Load threads
-  const formatDate = (value) => {
-    if (!value) return 'Kein Datum';
-    const d = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
-    if (isNaN(d.getTime())) return 'Kein Datum';
-    return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-  };
-
-  const loadThreads = async () => {
-    try {
-      const response = await fetch('/api/threads');
-      const data = await response.json();
-      if (data.error) {
-        threadsContainer.innerHTML = `<div class="error">Fehler: ${data.error}</div>`;
-        return;
-      }
-      // Handle different response shapes: { threads: [...] }, { items: [...] }, or direct array
-      const threads = data.threads || data.items || (Array.isArray(data) ? data : []);
-      if (!threads.length) {
-        threadsContainer.innerHTML = '<div class="empty">Keine Threads gefunden</div>';
-        return;
-      }
-      threadsContainer.innerHTML = threads.map(thread => `
-        <div class="thread-item" data-thread-id="${thread.id || thread.thread_id}">
-          <strong>${thread.title || thread.name || 'Untitled'}</strong>
-          <small>${formatDate(thread.updatedAt || thread.updated_at || thread.createdAt || thread.created_at)}</small>
-        </div>
-      `).join('');
-
-      document.querySelectorAll('.thread-item').forEach(item => {
-        item.addEventListener('click', () => {
-          loadThread(item.dataset.threadId);
-        });
-      });
-    } catch (err) {
-      threadsContainer.innerHTML = `<div class="error">Fehler beim Laden der Threads: ${err.message}</div>`;
-    }
-  };
-
-  // Load a specific thread
-  const loadThread = async (threadId) => {
-    try {
-      currentThread = threadId;
-      updateStatus('Lade Thread...', isConnected);
-
-      const response = await fetch(`/api/threads/${threadId}/turns`);
-      const data = await response.json();
-
-      if (data.error) {
-        chatMessages.innerHTML = `<div class="error">Fehler: ${data.error}</div>`;
-        return;
-      }
-      // Handle different response shapes
-      const turns = data.turns || data.items || (Array.isArray(data) ? data : []);
-      chatMessages.innerHTML = '';
-      turns.forEach(turn => {
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `message ${turn.role === 'user' ? 'user' : 'agent'}`;
-        msgDiv.textContent = turn.text || turn.content || JSON.stringify(turn);
-        chatMessages.appendChild(msgDiv);
-      });
-
-      updateStatus('Thread geladen', true);
-    } catch (err) {
-      chatMessages.innerHTML = `<div class="error">Fehler: ${err.message}</div>`;
-      updateStatus('Thread Laden fehlgeschlagen', false);
-    }
-  };
-
-  // SSE connection
-  const connectSSE = () => {
-    if (sseClient) return;
-
-    const eventSource = new EventSource('/api/events');
-    sseClient = eventSource;
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        // Server sends { method: 'events/...', params: {...} } or { type: 'connected' }
-        const method = data.method || '';
-        const params = data.params || data;
-        const type = data.type || method.replace('events/', '');
-
-        if (type === 'connected') {
-          updateStatus('Verbunden', true);
-        } else if (type === 'turnStarted' || type === 'turnCompleted') {
-          const turn = params.turn || params;
-          const msgDiv = document.createElement('div');
-          msgDiv.className = 'message agent';
-          msgDiv.textContent = 'Agent: ' + (turn.text || turn.content || JSON.stringify(turn));
-          chatMessages.appendChild(msgDiv);
-          chatMessages.scrollTop = chatMessages.scrollHeight;
-        } else if (type === 'itemStarted' || type === 'itemCompleted') {
-          const item = params.item || params;
-          const msgDiv = document.createElement('div');
-          msgDiv.className = 'message';
-          msgDiv.innerHTML = `<strong>Wissen:</strong> ${item.name || item.title || '...'}`;
-          wissenResults.appendChild(msgDiv);
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        const line = part.split('\n').find(l => l.startsWith('data: '));
+        if (!line) continue;
+        let evt;
+        try { evt = JSON.parse(line.substring(6)); } catch { continue; }
+        if (evt.type === 'delta') {
+          answer += evt.text;
+          answerBox.querySelector('.msg-body').textContent = answer;
+          $('#timeline').scrollTop = $('#timeline').scrollHeight;
+        } else if (evt.type === 'toolStart') {
+          tools.set(evt.tool, addToolChip(evt.tool, undefined));
+        } else if (evt.type === 'toolEnd') {
+          const chip = tools.get(evt.tool);
+          if (chip) {
+            chip.classList.remove('ok', 'err');
+            chip.classList.add(evt.ok ? 'ok' : 'err');
+            chip.querySelector('.spin')?.remove();
+          }
+        } else if (evt.type === 'done') {
+          answerBox.querySelector('.msg-body').textContent = evt.answer || answer;
+          $('#st-provider').textContent = evt.provider || state.provider;
+          $('#st-model').textContent = evt.model || state.model || '';
+          if (evt.answer) answer = evt.answer;
+        } else if (evt.type === 'error' || evt.type === 'providerError') {
+          if (evt.type === 'error') addMessage('error', evt.error);
         }
-      } catch (e) {
-        console.warn('SSE parse error', e, event.data);
       }
-    };
+    }
+  } catch (err) {
+    addMessage('error', 'Verbindung fehlgeschlagen: ' + err.message);
+  }
 
-    eventSource.onerror = (error) => {
-      console.error('SSE Error:', error);
-      updateStatus('SSE Verbindung verloren', false);
-      eventSource.close();
-      sseClient = null;
-      setTimeout(connectSSE, 3000);
-    };
+  state.busy = false;
+  $('#send-btn').disabled = false;
+  await persistSession(prompt, answer);
+  await loadSessions();
+}
+
+/* ---------------- Sessions ---------------- */
+async function persistSession(prompt, answer) {
+  let session = state.session;
+  if (!session) {
+    session = await post('/api/sessions', { name: prompt.slice(0, 60), model: state.model, provider: state.provider });
+    state.session = session;
+  }
+  await post(`/api/sessions/${session.id}/messages`, { role: 'user', content: prompt });
+  if (answer) await post(`/api/sessions/${session.id}/messages`, { role: 'assistant', content: answer });
+}
+
+async function loadSessions() {
+  const data = await api('/api/sessions');
+  state.sessions = data.sessions || [];
+  const list = $('#session-list');
+  list.innerHTML = '';
+  if (!state.sessions.length) {
+    list.appendChild(el('div', 'empty', 'Noch keine Sessions. Frage etwas los.'));
+    return;
+  }
+  let group = null;
+  for (const s of state.sessions) {
+    const label = fmtGroup(s.updatedAt);
+    if (label !== group) {
+      group = label;
+      list.appendChild(el('div', 'group-label', label));
+    }
+    const row = el('div', 'session' + (state.session && state.session.id === s.id ? ' active' : ''));
+    row.appendChild(el('span', 'session-title', s.title || 'Ohne Titel'));
+    row.appendChild(el('span', 'session-meta', fmtDate(s.updatedAt)));
+    row.addEventListener('click', () => openSession(s.id));
+    list.appendChild(row);
+  }
+}
+
+async function openSession(id) {
+  const session = await api('/api/sessions/' + id);
+  state.session = session;
+  $('#timeline').innerHTML = '';
+  for (const m of session.messages || []) {
+    addMessage(m.role === 'user' ? 'user' : 'agent', m.content);
+  }
+  await loadSessions();
+}
+
+/* ---------------- Freigaben ---------------- */
+function showApproval(evt) {
+  state.pendingApproval = evt;
+  $('#approval-reason').textContent = evt.params?.reason || evt.params?.tool || 'Aktion ausführen';
+  $('#approval-bar').hidden = false;
+}
+
+async function answerApproval(decision) {
+  const evt = state.pendingApproval;
+  if (!evt) return;
+  state.pendingApproval = null;
+  $('#approval-bar').hidden = true;
+  await post('/api/approve', { id: evt.id, decision });
+}
+
+/* ---------------- Provider und Modelle ---------------- */
+async function loadProviders() {
+  const data = await api('/api/providers');
+  state.providers = data.providers || [];
+  const sel = $('#provider-select');
+  sel.innerHTML = '';
+  for (const p of state.providers) {
+    const opt = el('option', null, p.name + (p.ready ? '' : ' (nicht bereit)'));
+    opt.value = p.id;
+    if (!p.ready) opt.disabled = true;
+    sel.appendChild(opt);
+  }
+  if (!state.providers.find(p => p.id === state.provider && p.ready)) {
+    const ready = state.providers.find(p => p.ready);
+    if (ready) state.provider = ready.id;
+  }
+  sel.value = state.provider;
+  await loadModels();
+  renderProviders();
+}
+
+async function loadModels() {
+  const data = await api('/api/models?provider=' + encodeURIComponent(state.provider));
+  state.models = data.models || [];
+  const sel = $('#model-select');
+  sel.innerHTML = '';
+  const auto = el('option', null, 'Modell: automatisch');
+  auto.value = '';
+  sel.appendChild(auto);
+  for (const m of state.models) sel.appendChild(el('option', null, m.name || m.id));
+  sel.value = state.model || '';
+}
+
+function renderProviders() {
+  const body = $('#provider-body');
+  body.innerHTML = '';
+  for (const p of state.providers) {
+    const box = el('div', 'box');
+    const head = el('div', 'kv');
+    head.appendChild(el('strong', null, p.name));
+    head.appendChild(el('span', null, p.ready ? 'bereit' : (p.reason || 'nicht bereit')));
+    box.appendChild(head);
+    const info = el('div', 'kv');
+    info.appendChild(el('span', null, 'Stufe'));
+    info.appendChild(el('span', null, String(p.tier)));
+    box.appendChild(info);
+    if (p.baseUrl) {
+      const u = el('div', 'kv');
+      u.appendChild(el('span', null, 'Adresse'));
+      u.appendChild(el('span', 'mono', p.baseUrl));
+      box.appendChild(u);
+    }
+    if (p.note) box.appendChild(el('div', 'hint', p.note));
+    body.appendChild(box);
+  }
+}
+
+/* ---------------- Wissen ---------------- */
+async function searchWissen() {
+  const q = $('#wissen-search').value.trim();
+  const box = $('#wissen-results');
+  if (!q) { box.innerHTML = ''; return; }
+  box.innerHTML = '';
+  box.appendChild(el('div', 'empty', 'Suche läuft...'));
+  const data = await api('/api/wissen?q=' + encodeURIComponent(q) + '&limit=12');
+  box.innerHTML = '';
+  if (!data.results?.length) {
+    box.appendChild(el('div', 'empty', 'Keine Treffer'));
+    return;
+  }
+  for (const r of data.results) {
+    const card = el('div', 'result');
+    card.appendChild(el('div', 'result-title', r.title));
+    card.appendChild(el('div', 'result-snippet', r.snippet || ''));
+    const meta = el('div', 'result-meta');
+    meta.appendChild(el('span', null, r.author || r.project || ''));
+    meta.appendChild(el('span', null, r.category || ''));
+    if (r.created) meta.appendChild(el('span', null, r.created));
+    if (r.url) {
+      const a = el('a', null, 'In Vault öffnen');
+      a.href = r.url; a.target = '_blank'; a.rel = 'noreferrer';
+      meta.appendChild(a);
+    }
+    card.appendChild(meta);
+    card.addEventListener('click', (e) => {
+      if (e.target.tagName === 'A') return;
+      const full = el('div', 'result-snippet', r.text || r.snippet || '');
+      card.appendChild(full);
+    });
+    box.appendChild(card);
+  }
+}
+
+/* ---------------- Rowboat ---------------- */
+async function loadRowboat() {
+  const body = $('#rowboat-body');
+  const data = await api('/api/rowboat/overview');
+  $('#st-rowboat').textContent = 'Rowboat: ' + (data.connected ? 'verbunden' : 'offline');
+  const cards = $('#rowboat-cards');
+  cards.innerHTML = '';
+  const card = (value, label) => {
+    const c = el('div', 'card');
+    c.appendChild(el('b', null, String(value)));
+    c.appendChild(el('span', null, label));
+    cards.appendChild(c);
   };
+  card(data.mailCount ?? 0, 'Mails');
+  card((data.topLevel || []).length, 'Wissensordner');
+  card(data.counts?.knowledgeFiles ?? 0, 'Notizen');
+  card(data.connected ? 'ok' : '—', 'Verbindung');
 
-  // Send message
-  const sendMessage = async () => {
-    const text = promptEl.value.trim();
-    if (!text || !isConnected) return;
+  const lists = $('#rowboat-lists');
+  lists.innerHTML = '';
+  const section = (title, items, render) => {
+    lists.appendChild(el('div', 'list-head', title));
+    if (!items?.length) { lists.appendChild(el('div', 'hint', 'Keine Einträge')); return; }
+    for (const item of items.slice(0, 25)) lists.appendChild(render(item));
+  };
+  const row = (title, meta) => {
+    const d = el('div', 'kv');
+    d.appendChild(el('span', null, title));
+    d.appendChild(el('span', null, meta || ''));
+    return d;
+  };
+  section('Wissensordner', (data.topLevel || []).map(t => ({ t })), item => row(item.t));
+  section('Neueste Mails', data.mails || [], m => row(m.title || m.file, fmtDate(new Date(m.updated).getTime() / 1000)));
+  section('Meetings', data.meetings || [], m => row(m.title, fmtDate(new Date(m.updated).getTime() / 1000)));
+  section('Personen', data.people || [], p => row(p.title, ''));
+  section('Projekte', data.projects || [], p => row(p.title, ''));
+}
 
-    updateStatus('Sende Nachricht...', true);
+/* ---------------- Werkzeuge ---------------- */
+async function loadWerkzeuge() {
+  const plugins = await api('/api/plugins');
+  const pl = $('#plugins-list');
+  pl.innerHTML = '';
+  pl.appendChild(el('div', 'list-head', 'Plugins'));
+  if (!plugins.plugins?.length) {
+    pl.appendChild(el('div', 'hint', 'Keine Plugins. Der Agent kann eigene anlegen (Ordner plugins/<name>/plugin.json).'));
+  }
+  for (const p of plugins.plugins || []) {
+    const box = el('div', 'box');
+    box.appendChild(el('div', 'kv', ''));
+    box.lastChild.appendChild(el('strong', null, p.name + ' ' + p.version));
+    box.lastChild.appendChild(el('span', null, p.tools.length + ' Werkzeuge'));
+    if (p.description) box.appendChild(el('div', 'hint', p.description));
+    pl.appendChild(box);
+  }
 
-    try {
-      const response = await fetch('/api/threads', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'gpt-6.1-sol',
-          prompt: text
-        })
-      });
+  const skills = await api('/api/skills');
+  const sl = $('#skills-list');
+  sl.innerHTML = '';
+  sl.appendChild(el('div', 'list-head', `Skills (${skills.count})`));
+  for (const s of (skills.skills || []).slice(0, 40)) {
+    const d = el('div', 'kv');
+    d.appendChild(el('span', null, s.name));
+    d.appendChild(el('span', 'mono', s.id));
+    sl.appendChild(d);
+  }
 
-      const data = await response.json();
-      if (data.error) {
-        updateStatus(`Fehler: ${data.error}`, true);
-      } else {
-        currentThread = data.id || data.thread_id;
-        updateStatus('Verstanden', true);
-        promptEl.value = '';
-        // Reload threads to show new one
-        loadThreads();
-      }
-    } catch (err) {
-      updateStatus(`Fehler: ${err.message}`, true);
+  const mcp = await api('/api/mcp');
+  const ml = $('#mcp-list');
+  ml.innerHTML = '';
+  ml.appendChild(el('div', 'list-head', `MCP-Server (${mcp.count})`));
+  for (const s of mcp.servers || []) {
+    const d = el('div', 'kv');
+    d.appendChild(el('span', null, s.name));
+    d.appendChild(el('span', 'mono', s.transport || ''));
+    ml.appendChild(d);
+  }
+  const mem = el('div', 'kv');
+  mem.appendChild(el('span', null, 'agent-memory'));
+  mem.appendChild(el('span', null, mcp.memory?.status || ''));
+  ml.appendChild(mem);
+
+  await loadFiles();
+}
+
+async function loadFiles(path) {
+  const target = path || 'C:\\Users\\Neu\\codex-web';
+  $('#fs-path').textContent = target;
+  const data = await api('/api/fs?path=' + encodeURIComponent(target));
+  const box = $('#fs-list');
+  box.innerHTML = '';
+  for (const e of (data.entries || []).slice(0, 40)) {
+    const d = el('div', 'kv');
+    d.appendChild(el('span', null, (e.kind === 'dir' ? '📁 ' : '📄 ') + e.name));
+    d.appendChild(el('span', 'mono', e.kind === 'dir' ? '' : String(e.size ?? '')));
+    if (e.kind === 'dir') d.addEventListener('click', () => loadFiles(e.path));
+    box.appendChild(d);
+  }
+}
+
+/* ---------------- SSE ---------------- */
+function connectSSE() {
+  const source = new EventSource('/api/events');
+  source.onmessage = (event) => {
+    let evt;
+    try { evt = JSON.parse(event.data); } catch { return; }
+    if (evt.type === 'connected') {
+      $('#conn-dot').className = 'dot ok';
+    } else if (evt.type === 'approval') {
+      showApproval(evt);
+    } else if (evt.type === 'error') {
+      $('#conn-dot').className = 'dot err';
     }
   };
-
-  // Interrupt
-  const interrupt = async () => {
-    if (!currentThread) return;
-
-    updateStatus('Unterbrechung...', true);
-
-    try {
-      await fetch('/api/interrupt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ thread_id: currentThread })
-      });
-      updateStatus('Unterbrochen', true);
-    } catch (err) {
-      updateStatus(`Fehler: ${err.message}`, true);
-    }
+  source.onerror = () => {
+    $('#conn-dot').className = 'dot err';
+    setTimeout(connectSSE, 3000);
   };
+}
 
-  // Wissen suchen
-  const searchWissen = async () => {
-    const query = wissenSearch.value.trim();
-    if (!query) return;
+/* ---------------- Health ---------------- */
+async function pollHealth() {
+  const data = await api('/api/health');
+  $('#st-memory').textContent = 'Wissen: ' + (data.memory || '–');
+  $('#st-version').textContent = 'v' + (state.info?.version || '?') + ' · ' + Math.round(data.uptime / 60) + ' min';
+  $('#conn-dot').className = 'dot ' + (data.ok ? 'ok' : 'err');
+}
 
-    wissenResults.innerHTML = 'Lade Wissen...';
+/* ---------------- Ereignisse ---------------- */
+function autoGrow() {
+  const ta = $('#prompt');
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, window.innerHeight * 0.3) + 'px';
+}
 
-    try {
-      const response = await fetch(`/api/wissen?q=${encodeURIComponent(query)}&limit=5`);
-      const data = await response.json();
+function setup() {
+  $('#send-btn').addEventListener('click', send);
+  $('#prompt').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  $('#prompt').addEventListener('input', autoGrow);
 
-      if (data.error) {
-        wissenResults.innerHTML = `<div class="error">Fehler: ${data.error}</div>`;
-        return;
-      }
+  $('#new-session').addEventListener('click', async () => {
+    state.session = null;
+    $('#timeline').innerHTML = '';
+    $('#prompt').focus();
+  });
 
-      const results = data.results || data.items || (Array.isArray(data) ? data : []);
-      if (!results.length) {
-        wissenResults.innerHTML = '<div class="empty">Keine Treffer</div>';
-        return;
-      }
+  $('#provider-select').addEventListener('change', async (e) => {
+    state.provider = e.target.value;
+    state.model = null;
+    localStorage.setItem('cx.provider', state.provider);
+    await loadModels();
+  });
+  $('#model-select').addEventListener('change', (e) => {
+    state.model = e.target.value || null;
+    localStorage.setItem('cx.model', state.model || '');
+  });
 
-      wissenResults.innerHTML = results.map(item => `
-        <div class="wissen-item">
-          <strong>${item.title}</strong>
-          <small>${item.description || 'Keine Beschreibung'}</small>
-        </div>
-      `).join('');
-    } catch (err) {
-      wissenResults.innerHTML = `<div class="error">Fehler beim Suchen: ${err.message}</div>`;
-    }
-  };
+  $('#agent-toggle').addEventListener('change', (e) => {
+    state.agent = e.target.checked;
+    localStorage.setItem('cx.agent', state.agent ? '1' : '0');
+    $('#agent-pill').hidden = !state.agent;
+  });
 
-  // Event listeners
-  sendBtn.addEventListener('click', sendMessage);
-  interruptBtn.addEventListener('click', interrupt);
-  promptEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+  $('#approval-accept').addEventListener('click', () => answerApproval('accept'));
+  $('#approval-decline').addEventListener('click', () => answerApproval('decline'));
+
+  $('#toggle-left').addEventListener('click', () => $('#app').classList.toggle('left-open'));
+  $('#toggle-right').addEventListener('click', () => $('#app').classList.toggle('right-open'));
+
+  $('#theme-toggle').addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('cx.theme', next);
+  });
+
+  $$('.tab').forEach(tab => tab.addEventListener('click', () => {
+    $$('.tab').forEach(t => t.classList.remove('active'));
+    $$('.tabpanel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    $(`[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+    if (tab.dataset.tab === 'rowboat') loadRowboat();
+    if (tab.dataset.tab === 'werkzeuge') loadWerkzeuge();
+  }));
+
+  let debounce;
+  $('#wissen-search').addEventListener('input', () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(searchWissen, 400);
+  });
+  $('#wissen-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchWissen(); });
+
+  $('#rowboat-reload').addEventListener('click', loadRowboat);
+  $('#plugins-reload').addEventListener('click', loadWerkzeuge);
+
+  $('#briefing-save').addEventListener('click', async () => {
+    const out = await post('/api/rowboat/briefing', {
+      title: $('#briefing-title').value,
+      text: $('#briefing-text').value
+    });
+    $('#briefing-result').textContent = out.error || ('Gespeichert: ' + (out.path || ''));
+  });
+
+  $('#task-start').addEventListener('click', async () => {
+    const out = await post('/api/rowboat/task', {
+      agent: $('#task-agent').value,
+      prompt: $('#task-prompt').value
+    });
+    $('#task-result').textContent = out.denied ? 'Abgelehnt' : (out.error || 'Task gestartet');
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { $('#app').classList.remove('left-open', 'right-open'); $('#approval-bar').hidden = true; }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); $('#new-session').click(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); $('#wissen-search').focus(); }
+    if (!e.ctrlKey && !e.metaKey && !/input|textarea/i.test(e.target.tagName)) {
+      if (e.key === 's' || e.key === 'S') $('#app').classList.toggle('left-open');
+      if (e.key === 'w' || e.key === 'W') $('#app').classList.toggle('right-open');
     }
   });
-  wissenSearch.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') searchWissen();
-  });
+}
 
-  // Initial load
-  updateStatus('Verbinden...', false);
+async function init() {
+  setup();
+  state.info = await api('/api/info');
+  $('#st-version').textContent = 'v' + state.info.version;
+  $('#agent-toggle').checked = state.agent;
+  $('#agent-pill').hidden = !state.agent;
+  await loadProviders();
+  await loadSessions();
+  await loadWerkzeuge();
   connectSSE();
-  loadThreads();
-});
+  pollHealth();
+  setInterval(pollHealth, 5000);
+  $('#prompt').focus();
+}
+
+init();

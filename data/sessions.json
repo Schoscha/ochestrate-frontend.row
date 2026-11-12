@@ -1,0 +1,33 @@
+[
+  {
+    "id": "s-mwdggx27-9l44e",
+    "name": "Test-Session",
+    "model": null,
+    "provider": null,
+    "createdAt": 1794482368,
+    "updatedAt": 1794482368,
+    "archived": false,
+    "messages": []
+  },
+  {
+    "id": "s-mwdgjqbg-2qt75",
+    "name": "Antworte mit genau einem Wort: test",
+    "model": null,
+    "provider": "free",
+    "createdAt": 1794482499,
+    "updatedAt": 1794482499,
+    "archived": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Antworte mit genau einem Wort: test",
+        "at": 1794482499
+      },
+      {
+        "role": "assistant",
+        "content": "test",
+        "at": 1794482499
+      }
+    ]
+  }
+]

@@ -1,39 +1,174 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Codex Web UI</title>
-  <link rel="stylesheet" href="/style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#161616">
+<title>Codex Web UI</title>
+<link rel="stylesheet" href="/style.css">
+<script>
+  // Farbschema vor dem ersten Malen setzen (kein Flackern)
+  (function () {
+    var t = localStorage.getItem('cx.theme');
+    if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
 </head>
 <body>
-  <div id="app">
-    <aside id="sidebar">
-      <div class="logo">Codex Web UI</div>
-      <div id="threads-container">
-        <div class="section-title">Threads</div>
-        <div id="threads-list">Loading...</div>
+<div id="app">
+
+  <!-- Kopfleiste -->
+  <header id="topbar">
+    <button class="icon-btn" id="toggle-left" aria-label="Sessions ein-/ausblenden" title="Sessions (S)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <div class="brand">
+      <span class="brand-mark">CX</span>
+      <span class="brand-name">Codex Web UI</span>
+    </div>
+    <div class="topbar-center">
+      <select id="provider-select" aria-label="Anbieter"></select>
+      <select id="model-select" aria-label="Modell"></select>
+    </div>
+    <div class="topbar-right">
+      <span class="pill" id="agent-pill" hidden>Agent</span>
+      <span class="dot" id="conn-dot" title="Verbindung"></span>
+      <button class="icon-btn" id="theme-toggle" aria-label="Farbschema wechseln" title="Hell / Dunkel">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path>
+        </svg>
+      </button>
+      <button class="icon-btn" id="toggle-right" aria-label="Werkzeuge ein-/ausblenden" title="Werkzeuge (W)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Linke Spalte: Sessions -->
+  <aside id="left">
+    <div class="left-head">
+      <button class="btn primary" id="new-session">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        Neue Session
+      </button>
+      <input type="search" id="session-search" placeholder="Sessions durchsuchen" aria-label="Sessions durchsuchen">
+    </div>
+    <nav id="session-list" class="scroll" aria-label="Sessions"></nav>
+  </aside>
+
+  <!-- Mitte: Chat -->
+  <main id="center">
+    <div id="timeline" class="scroll" role="log" aria-live="polite"></div>
+
+    <div id="approval-bar" hidden>
+      <div class="approval-text">
+        <strong>Freigabe nötig</strong>
+        <span id="approval-reason"></span>
       </div>
-      <div class="status" id="status">Disconnected</div>
-    </aside>
-    <main id="main">
-      <div id="chat-container">
-        <div id="chat-messages"></div>
-        <div id="composer">
-          <textarea id="prompt" placeholder="Was soll der Agent tun?" rows="3"></textarea>
-          <div class="composer-row">
-            <button id="send-btn">Senden</button>
-            <button id="interrupt-btn" disabled>Interrupt</button>
+      <div class="approval-actions">
+        <button class="btn" id="approval-decline">Ablehnen</button>
+        <button class="btn primary" id="approval-accept">Freigeben</button>
+      </div>
+    </div>
+
+    <div id="composer-wrap">
+      <div id="composer" class="scroll">
+        <textarea id="prompt" rows="1" placeholder="Was soll der Agent tun? (Enter senden, Shift+Enter neue Zeile)"></textarea>
+        <div class="composer-bar">
+          <label class="switch" title="Agent-Modus: Modell darf Werkzeuge benutzen">
+            <input type="checkbox" id="agent-toggle">
+            <span>Agent-Modus</span>
+          </label>
+          <div class="spacer"></div>
+          <button class="btn ghost" id="stop-btn" hidden>Stopp</button>
+          <button class="btn primary" id="send-btn">Senden</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Rechte Spalte: Werkzeuge -->
+  <aside id="right">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="wissen" role="tab">Wissen</button>
+      <button class="tab" data-tab="rowboat" role="tab">Rowboat</button>
+      <button class="tab" data-tab="werkzeuge" role="tab">Werkzeuge</button>
+      <button class="tab" data-tab="provider" role="tab">Provider</button>
+    </div>
+
+    <section class="tabpanel active" data-panel="wissen">
+      <div class="panel-head">
+        <input type="search" id="wissen-search" placeholder="Wissen suchen (Vault, Gedaechtnis, Rowboat)" aria-label="Wissen suchen">
+      </div>
+      <div id="wissen-results" class="scroll"></div>
+    </section>
+
+    <section class="tabpanel" data-panel="rowboat">
+      <div class="panel-head">
+        <span class="panel-title">Rowboat</span>
+        <button class="btn ghost small" id="rowboat-reload">Neu laden</button>
+      </div>
+      <div id="rowboat-body" class="scroll">
+        <div class="cards" id="rowboat-cards"></div>
+        <details class="box">
+          <summary>Briefing schreiben</summary>
+          <input type="text" id="briefing-title" placeholder="Titel">
+          <textarea id="briefing-text" rows="4" placeholder="Was soll das Briefing enthalten?"></textarea>
+          <button class="btn primary small" id="briefing-save">Briefing speichern</button>
+          <div id="briefing-result" class="hint"></div>
+        </details>
+        <details class="box">
+          <summary>Task starten</summary>
+          <select id="task-agent">
+            <option value="codex">Codex</option>
+            <option value="claude">Claude</option>
+            <option value="opencode">OpenCode</option>
+          </select>
+          <textarea id="task-prompt" rows="4" placeholder="Auftrag an den Agenten"></textarea>
+          <button class="btn primary small" id="task-start">Task starten</button>
+          <div id="task-result" class="hint"></div>
+        </details>
+        <div id="rowboat-lists"></div>
+      </div>
+    </section>
+
+    <section class="tabpanel" data-panel="werkzeuge">
+      <div class="panel-head">
+        <span class="panel-title">Werkzeuge</span>
+        <button class="btn ghost small" id="plugins-reload">Plugins neu laden</button>
+      </div>
+      <div id="werkzeuge-body" class="scroll">
+        <div id="plugins-list"></div>
+        <div id="skills-list"></div>
+        <div id="mcp-list"></div>
+        <div id="files-box">
+          <div class="box">
+            <strong>Dateien</strong>
+            <div id="fs-path" class="hint mono"></div>
+            <div id="fs-list"></div>
           </div>
         </div>
       </div>
-      <div id="wissen-panel">
-        <div class="section-title">Wissen</div>
-        <input id="wissen-search" placeholder="Wissen suchen...">
-        <div id="wissen-results"></div>
-      </div>
-    </main>
-  </div>
-  <script src="/app.js"></script>
+    </section>
+
+    <section class="tabpanel" data-panel="provider">
+      <div class="panel-head"><span class="panel-title">Provider</span></div>
+      <div id="provider-body" class="scroll"></div>
+    </section>
+  </aside>
+
+  <!-- Statusleiste -->
+  <footer id="statusbar">
+    <span id="st-provider">–</span>
+    <span id="st-model"></span>
+    <span id="st-memory">Wissen: –</span>
+    <span id="st-rowboat">Rowboat: –</span>
+    <div class="spacer"></div>
+    <span id="st-version"></span>
+  </footer>
+</div>
+<script src="/app.js" type="module"></script>
 </body>
 </html>

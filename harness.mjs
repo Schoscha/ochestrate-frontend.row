@@ -124,12 +124,28 @@ export class Harness {
    * @param {Function} opts.emit     async (event) => void
    * @param {string[]} opts.roots    erlaubte Wurzeln
    */
-  constructor({ providers, memory, approvalGate, emit, roots } = {}) {
+  constructor({ providers, memory, approvalGate, emit, roots, extraTools, pluginRegistry } = {}) {
     this.providers = providers;
     this.memory = memory;
     this.approvalGate = approvalGate;
     this.emit = emit || (() => {});
     this.roots = (roots || DEFAULT_ROOTS).map(r => resolve(r).toLowerCase());
+    this.extraTools = extraTools || (() => []);
+    this.pluginRegistry = pluginRegistry || null;
+    this.customTools = new Map();
+  }
+
+  /** Eigenes Werkzeug registrieren (z. B. Rowboat). */
+  registerTool(name, handler) {
+    this.customTools.set(name, handler);
+    return this;
+  }
+
+  /** Alle Werkzeug-Schemata: Basis + eigene + Plugins. */
+  toolSchemas() {
+    const schemas = [...TOOLS, ...this.extraTools()];
+    if (this.pluginRegistry) schemas.push(...this.pluginRegistry.toolSchemas());
+    return schemas;
   }
 
   pathAllowed(target) {
@@ -146,8 +162,33 @@ export class Harness {
     return p;
   }
 
-  async runTool(name, rawArgs) {
+  async runTool(name, rawArgs, gate) {
     const args = rawArgs && typeof rawArgs === 'string' ? safeParse(rawArgs) : (rawArgs || {});
+
+    // eigene Werkzeuge (Rowboat, Plugins, ...)
+    if (this.customTools.has(name)) {
+      return this.customTools.get(name)(args, gate);
+    }
+
+    // Plugin-Werkzeuge
+    if (this.pluginRegistry) {
+      const found = this.pluginRegistry.findTool(name);
+      if (found) {
+        const tool = found.tool;
+        if (tool.approval !== false) {
+          const decision = await gate({
+            tool: name,
+            args,
+            reason: `Plugin ${found.plugin.name}: ${name}`
+          });
+          if (decision !== 'accept' && decision !== 'acceptForSession') {
+            return { ok: false, denied: true, error: 'Plugin-Aktion abgelehnt' };
+          }
+        }
+        return this.pluginRegistry.run(tool, args, this.roots[0]);
+      }
+    }
+
     switch (name) {
       case 'read_file': {
         const p = this.checkPath(args.path);
@@ -261,7 +302,7 @@ export class Harness {
       const out = await this.providers.chatWithTools(usedProvider, {
         model: usedModel,
         messages: history,
-        tools: TOOLS,
+        tools: this.toolSchemas(),
         temperature
       });
       usedProvider = out.provider;
@@ -282,7 +323,7 @@ export class Harness {
         const name = call.function?.name;
         const args = safeParse(call.function?.arguments);
         await this.emit({ type: 'toolStart', tool: name, args });
-        const result = await this.runTool(name, args);
+        const result = await this.runTool(name, args, this.approvalGate);
         toolsUsed.push({ tool: name, ok: result.ok !== false });
         await this.emit({ type: 'toolEnd', tool: name, ok: result.ok !== false, result });
         history.push({
