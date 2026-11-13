@@ -343,7 +343,7 @@ const httpServer = createServer(async (req, res) => {
     if (path === '/api/info' && req.method === 'GET') {
       return json(res, 200, {
         name: 'Codex Web UI',
-        version: '1.2.0',
+        version: '1.2.3',
         host: hostname(),
         urls: { local: `http://127.0.0.1:${PORT}`, tailscale: `http://${TAILSCALE_IP}:${PORT}` },
         stationUrl: STATION_URL,

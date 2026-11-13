@@ -472,5 +472,20 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   .icon-btn { width: 40px; height: 40px; }
   #statusbar { gap: 9px; font-size: 11px; overflow-x: auto; white-space: nowrap; }
   #timeline { padding: 12px 0 6px; }
+  /* Offene Leiste schwebt: rote Lasche an der Aussenkante zum ZUKLAPPEN */
+  #left:not(.collapsed) .rail-tab,
+  #dock:not(.collapsed) .rail-tab {
+    display: grid; place-items: center; width: 28px; height: 120px; top: var(--top-h);
+    background: #e5484d; color: #fff; border: none; cursor: pointer;
+    font-size: 0; font-weight: 700; z-index: 40;
+  }
+  #left:not(.collapsed) .rail-tab { left: 100%; }
+  #dock:not(.collapsed) .rail-tab { right: 100%; left: auto; }
+  #left:not(.collapsed) .rail-tab:hover,
+  #dock:not(.collapsed) .rail-tab:hover { background: #ff6369; }
+  #left:not(.collapsed) .rail-tab::after,
+  #dock:not(.collapsed) .rail-tab::after { content: "\2715"; font-size: 15px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+.version-pill{font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:.04em;opacity:.85;cursor:default;user-select:none}

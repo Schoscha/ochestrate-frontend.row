@@ -857,8 +857,8 @@ function setup() {
   $('#toggle-left').addEventListener('click', () => $('#left').classList.toggle('collapsed'));
   $('#toggle-right').addEventListener('click', () => $('#dock').classList.toggle('collapsed'));
   $('#dock-toggle').addEventListener('click', () => $('#dock').classList.toggle('collapsed'));
-  $('#left-tab').addEventListener('click', () => $('#left').classList.remove('collapsed'));
-  $('#right-tab').addEventListener('click', () => $('#dock').classList.remove('collapsed'));
+  $('#left-tab').addEventListener('click', () => $('#left').classList.toggle('collapsed'));
+  $('#right-tab').addEventListener('click', () => $('#dock').classList.toggle('collapsed'));
   $('#clear-canvas').addEventListener('click', async () => {
     const res = await post('/api/layout', { action: 'clear' });
     state.layout = res;

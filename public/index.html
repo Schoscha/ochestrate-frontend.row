@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#161616">
 <title>Codex Web UI</title>
-<link rel="stylesheet" href="/style.css?v=1.2.2">
+<link rel="stylesheet" href="/style.css?v=1.2.3">
 <script>
   (function () {
     var t = localStorage.getItem('cx.theme');
@@ -31,6 +31,7 @@
       <select id="model-select" aria-label="Modell"></select>
     </div>
     <div class="topbar-right">
+      <span class="pill version-pill" id="app-version" title="Geladene Version">v1.2.3</span>
       <button class="btn ghost small" id="add-module" title="Modul hinzufuegen">+ Modul</button>
       <button class="btn ghost small" id="clear-canvas" title="Alle Module entfernen und neu anordnen">Leeren</button>
       <span class="pill" id="agent-pill" hidden>Agent</span>
@@ -200,6 +201,6 @@
   </section>
 </div>
 
-<script src="/app.js?v=1.2.2" type="module"></script>
+<script src="/app.js?v=1.2.3" type="module"></script>
 </body>
 </html>
