@@ -6,8 +6,8 @@
       "title": "Chat",
       "x": 0,
       "y": 0,
-      "w": 38,
-      "h": 100,
+      "w": 50,
+      "h": 50,
       "focus": false,
       "state": {}
     },
@@ -15,16 +15,29 @@
       "id": "w-term",
       "type": "term",
       "title": "Terminal",
-      "x": 38,
+      "x": 50,
       "y": 0,
-      "w": 62,
-      "h": 100,
+      "w": 50,
+      "h": 50,
       "focus": false,
       "state": {
         "term": "t8"
       }
+    },
+    {
+      "id": "w-term-fzy71",
+      "type": "term",
+      "title": "Terminal",
+      "x": 50,
+      "y": 50,
+      "w": 50,
+      "h": 50,
+      "focus": true,
+      "state": {
+        "term": "t79"
+      }
     }
   ],
   "preset": "uebersicht",
-  "active": "w-chat-z3m91"
+  "active": "w-term-fzy71"
 }
