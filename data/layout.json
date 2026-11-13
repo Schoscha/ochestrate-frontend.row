@@ -6,7 +6,7 @@
       "title": "Chat",
       "x": 0,
       "y": 0,
-      "w": 68,
+      "w": 38,
       "h": 100,
       "focus": false,
       "state": {}
@@ -15,16 +15,16 @@
       "id": "w-term",
       "type": "term",
       "title": "Terminal",
-      "x": 17,
+      "x": 38,
       "y": 0,
       "w": 62,
       "h": 100,
-      "focus": true,
+      "focus": false,
       "state": {
-        "term": "t2"
+        "term": "t8"
       }
     }
   ],
   "preset": "uebersicht",
-  "active": "w-term"
+  "active": "w-chat-z3m91"
 }
