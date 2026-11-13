@@ -714,7 +714,12 @@ const httpServer = createServer(async (req, res) => {
     const filePath = join(PUBLIC_DIR, path === '/' ? 'index.html' : path);
     if (!filePath.startsWith(PUBLIC_DIR)) return json(res, 403, { error: 'Forbidden' });
     if (!existsSync(filePath) || statSync(filePath).isDirectory()) return json(res, 404, { error: 'Not Found' });
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[extname(filePath)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': MIME_TYPES[extname(filePath)] || 'application/octet-stream',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
     res.end(readFileSync(filePath));
   } catch (e) {
     console.error('[server]', e.message);

@@ -6,7 +6,7 @@
       "title": "Chat",
       "x": 0,
       "y": 0,
-      "w": 38,
+      "w": 68,
       "h": 100,
       "focus": false,
       "state": {}
@@ -15,16 +15,16 @@
       "id": "w-term",
       "type": "term",
       "title": "Terminal",
-      "x": 38,
+      "x": 17,
       "y": 0,
       "w": 62,
       "h": 100,
-      "focus": false,
+      "focus": true,
       "state": {
-        "term": "t14"
+        "term": "t2"
       }
     }
   ],
   "preset": "uebersicht",
-  "active": "w-rowboat-nafh5"
+  "active": "w-term"
 }
